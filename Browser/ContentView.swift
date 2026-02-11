@@ -69,6 +69,21 @@ struct WindowConfiguratorView: NSViewRepresentable {
 
 // MARK: - Open Graph Model
 
+struct IconInfo: Equatable, Identifiable {
+    let id = UUID()
+    var url: String
+    var sizes: String       // e.g. "180x180", "" if unspecified
+    var rel: String         // e.g. "apple-touch-icon", "icon"
+    var rawTag: String      // e.g. <link rel="icon" href="/favicon.ico">
+    var image: NSImage?     // prefetched image data
+    var pixelWidth: Int?    // actual image width in pixels
+    var pixelHeight: Int?   // actual image height in pixels
+
+    static func == (lhs: IconInfo, rhs: IconInfo) -> Bool {
+        lhs.url == rhs.url && lhs.sizes == rhs.sizes && lhs.rel == rhs.rel && lhs.rawTag == rhs.rawTag
+    }
+}
+
 struct OGMetadata: Equatable {
     var title: String = ""
     var description: String = ""
@@ -77,8 +92,13 @@ struct OGMetadata: Equatable {
     var twitterDescription: String = ""
     var twitterImage: String = ""
     var faviconURL: String = ""
+    var icons: [IconInfo] = []
     var themeColor: String = ""
-    var hasAppleTouchIcon: Bool = false
+    var canonical: String = ""
+    var robots: String = ""
+    var keywords: String = ""
+    var generator: String = ""
+    var lang: String = ""
     var hasPWA: Bool = false
     var host: String = ""
 }
@@ -158,16 +178,39 @@ class WebViewModel: ObservableObject {
                              document.querySelector('meta[name="' + property + '"]');
                     return el ? el.getAttribute('content') || '' : '';
                 }
-                var faviconEl = document.querySelector('link[rel="icon"]') ||
-                               document.querySelector('link[rel="shortcut icon"]') ||
-                               document.querySelector('link[rel="apple-touch-icon"]');
-                var favicon = faviconEl ? faviconEl.getAttribute('href') || '' : '';
-                if (favicon && !favicon.startsWith('http')) {
-                    favicon = new URL(favicon, document.location.origin).href;
-                }
-                var hasAppleTouchIcon = !!document.querySelector('link[rel="apple-touch-icon"]') ||
-                                       !!document.querySelector('link[rel="apple-touch-icon-precomposed"]');
+                var icons = [];
+                document.querySelectorAll('link[rel="icon"], link[rel="shortcut icon"], link[rel="apple-touch-icon"], link[rel="apple-touch-icon-precomposed"]').forEach(function(el) {
+                    var href = el.getAttribute('href') || '';
+                    if (href && !href.startsWith('http')) {
+                        href = new URL(href, document.location.origin).href;
+                    }
+                    if (href) {
+                        icons.push({
+                            url: href,
+                            sizes: el.getAttribute('sizes') || '',
+                            rel: el.getAttribute('rel') || '',
+                            rawTag: el.outerHTML
+                        });
+                    }
+                });
+                var favicon = icons.length > 0 ? icons[0].url : '';
                 var hasPWA = !!document.querySelector('link[rel="manifest"]');
+                var canonicalEl = document.querySelector('link[rel="canonical"]');
+                var canonical = canonicalEl ? canonicalEl.getAttribute('href') || '' : '';
+                var robots = getMeta('robots') || getMeta('googlebot') || '';
+                var keywords = getMeta('keywords') || '';
+                var generator = getMeta('generator') || '';
+                if (!generator) {
+                    if (document.querySelector('script#__NEXT_DATA__') || document.querySelector('script[src*="/_next/"]') || typeof self.__next_f !== 'undefined' || (document.getElementById('__next') && (document.querySelector('link[href*="/_next/"]') || document.querySelector('script[src*="/_next/"]')))) generator = 'Next.js';
+                    else if (typeof window.__remixContext !== 'undefined' || document.querySelector('script[src*="/build/"]') && document.querySelector('link[href*="/build/"]') && document.querySelector('meta[name="viewport"]')) generator = 'Remix';
+                    else if (document.querySelector('meta[name="nuxt"]') || document.querySelector('script#__NUXT_DATA__') || document.querySelector('[id^="__nuxt"]')) generator = 'Nuxt';
+                    else if (document.querySelector('#__gatsby')) generator = 'Gatsby';
+                    else if (document.querySelector('[data-svelte-h]') || document.querySelector('[class*="svelte-"]')) generator = 'Svelte';
+                    else if (document.querySelector('[ng-version]')) generator = 'Angular';
+                    else if (document.querySelector('[data-v-]') || document.querySelector('[data-vue-app]') || document.getElementById('__vue-content')) generator = 'Vue';
+                    else if (document.querySelector('[data-reactroot]') || document.getElementById('__next')) generator = 'React';
+                }
+                var lang = document.documentElement.getAttribute('lang') || '';
                 var bgColor = '';
                 var el = document.body;
                 while (el) {
@@ -188,7 +231,12 @@ class WebViewModel: ObservableObject {
                     twitterImage: getMeta('twitter:image') || getMeta('og:image') || '',
                     favicon: favicon || (document.location.origin + '/favicon.ico'),
                     themeColor: getMeta('theme-color') || '',
-                    hasAppleTouchIcon: hasAppleTouchIcon,
+                    icons: icons,
+                    canonical: canonical,
+                    robots: robots,
+                    keywords: keywords,
+                    generator: generator,
+                    lang: lang,
                     hasPWA: hasPWA,
                     bgColor: bgColor
                 });
@@ -207,7 +255,20 @@ class WebViewModel: ObservableObject {
                 host = h.hasPrefix("www.") ? String(h.dropFirst(4)) : h
             }
 
-            let metadata = OGMetadata(
+            var icons: [IconInfo] = []
+            if let iconDicts = dict["icons"] as? [[String: Any]] {
+                icons = iconDicts.compactMap { d in
+                    guard let url = d["url"] as? String, !url.isEmpty else { return nil }
+                    return IconInfo(
+                        url: url,
+                        sizes: d["sizes"] as? String ?? "",
+                        rel: d["rel"] as? String ?? "",
+                        rawTag: d["rawTag"] as? String ?? ""
+                    )
+                }
+            }
+
+            var metadata = OGMetadata(
                 title: dict["title"] as? String ?? "",
                 description: dict["description"] as? String ?? "",
                 imageURL: dict["image"] as? String ?? "",
@@ -215,26 +276,51 @@ class WebViewModel: ObservableObject {
                 twitterDescription: dict["twitterDescription"] as? String ?? "",
                 twitterImage: dict["twitterImage"] as? String ?? "",
                 faviconURL: dict["favicon"] as? String ?? "",
+                icons: icons,
                 themeColor: dict["themeColor"] as? String ?? "",
-                hasAppleTouchIcon: dict["hasAppleTouchIcon"] as? Bool ?? false,
+                canonical: dict["canonical"] as? String ?? "",
+                robots: dict["robots"] as? String ?? "",
+                keywords: dict["keywords"] as? String ?? "",
+                generator: dict["generator"] as? String ?? "",
+                lang: dict["lang"] as? String ?? "",
                 hasPWA: dict["hasPWA"] as? Bool ?? false,
                 host: host
             )
 
-            // Prefetch images into URL cache so AsyncImage renders instantly
-            let imageURLs = [metadata.imageURL, metadata.twitterImage, metadata.faviconURL]
+            // Prefetch OG images into URL cache
+            let ogImageURLs = [metadata.imageURL, metadata.twitterImage, metadata.faviconURL]
                 .compactMap { URL(string: $0) }
                 .filter { !$0.absoluteString.isEmpty }
 
             let group = DispatchGroup()
-            for url in imageURLs {
+            for url in ogImageURLs {
                 group.enter()
                 URLSession.shared.dataTask(with: url) { _, _, _ in
                     group.leave()
                 }.resume()
             }
 
+            // Prefetch icon images and resolve their actual pixel sizes
+            var resolvedIcons = icons
+            for (i, icon) in icons.enumerated() {
+                guard let url = URL(string: icon.url), !icon.url.isEmpty else { continue }
+                group.enter()
+                URLSession.shared.dataTask(with: url) { data, _, _ in
+                    if let data, let nsImage = NSImage(data: data) {
+                        let rep = nsImage.representations.first
+                        resolvedIcons[i].image = nsImage
+                        let pw = rep?.pixelsWide ?? 0
+                        let ph = rep?.pixelsHigh ?? 0
+                        // For vector formats (SVG), pixel dims are 0; use point size instead
+                        resolvedIcons[i].pixelWidth = pw > 0 ? pw : (nsImage.size.width > 0 ? Int(nsImage.size.width) : nil)
+                        resolvedIcons[i].pixelHeight = ph > 0 ? ph : (nsImage.size.height > 0 ? Int(nsImage.size.height) : nil)
+                    }
+                    group.leave()
+                }.resume()
+            }
+
             group.notify(queue: .main) {
+                metadata.icons = resolvedIcons
                 self?.ogData = metadata
 
                 // Parse page background color from CSS rgb() string
@@ -289,6 +375,117 @@ struct WebView: NSViewRepresentable {
 
 // MARK: - Balanced Text
 
+// MARK: - Flow Layout
+
+struct FlowLayout: Layout {
+    var alignment: Alignment
+    var spacing: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let rows = computeRows(proposal: proposal, subviews: subviews)
+        let height = rows.reduce(CGFloat(0)) { sum, row in
+            sum + row.height + (sum > 0 ? spacing : 0)
+        }
+        return CGSize(width: proposal.width ?? 0, height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let rows = computeRows(proposal: proposal, subviews: subviews)
+        let totalHeight = rows.reduce(CGFloat(0)) { sum, row in
+            sum + row.height + (sum > 0 ? spacing : 0)
+        }
+
+        var y: CGFloat
+        if alignment == .bottomLeading {
+            y = bounds.maxY - totalHeight
+        } else {
+            y = bounds.minY
+        }
+
+        for row in rows {
+            var x = bounds.minX
+            for index in row.indices {
+                let size = subviews[index].sizeThatFits(.unspecified)
+                let yOffset: CGFloat
+                if alignment == .bottomLeading {
+                    yOffset = row.height - size.height
+                } else {
+                    yOffset = 0
+                }
+                subviews[index].place(at: CGPoint(x: x, y: y + yOffset), proposal: .unspecified)
+                x += size.width + spacing
+            }
+            y += row.height + spacing
+        }
+    }
+
+    private struct Row {
+        var indices: [Int]
+        var height: CGFloat
+    }
+
+    private func computeRows(proposal: ProposedViewSize, subviews: Subviews) -> [Row] {
+        let maxWidth = proposal.width ?? .infinity
+        var rows: [Row] = []
+        var currentRow = Row(indices: [], height: 0)
+        var currentWidth: CGFloat = 0
+
+        for (index, subview) in subviews.enumerated() {
+            let size = subview.sizeThatFits(.unspecified)
+            if !currentRow.indices.isEmpty && currentWidth + spacing + size.width > maxWidth {
+                rows.append(currentRow)
+                currentRow = Row(indices: [], height: 0)
+                currentWidth = 0
+            }
+            currentRow.indices.append(index)
+            currentRow.height = max(currentRow.height, size.height)
+            currentWidth += (currentRow.indices.count > 1 ? spacing : 0) + size.width
+        }
+        if !currentRow.indices.isEmpty {
+            rows.append(currentRow)
+        }
+        return rows
+    }
+}
+
+// MARK: - SVG Image View
+
+struct SVGImageView: View {
+    let url: URL
+    let displaySize: Int?
+    @State private var nsImage: NSImage?
+
+    var body: some View {
+        Group {
+            if let nsImage {
+                let size = displaySize.map { CGFloat($0) }
+                if let size {
+                    Image(nsImage: nsImage)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(width: size, height: size)
+                        .cornerRadius(max(2, size / 6))
+                } else {
+                    Image(nsImage: nsImage)
+                        .cornerRadius(4)
+                }
+            } else {
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(Color.black.opacity(0.1))
+                    .frame(width: CGFloat(displaySize ?? 16), height: CGFloat(displaySize ?? 16))
+            }
+        }
+        .onAppear { loadSVG() }
+    }
+
+    private func loadSVG() {
+        URLSession.shared.dataTask(with: url) { data, _, _ in
+            guard let data, let image = NSImage(data: data) else { return }
+            DispatchQueue.main.async { nsImage = image }
+        }.resume()
+    }
+}
+
 // MARK: - Styles
 
 struct HoverButtonStyle: ButtonStyle {
@@ -331,6 +528,7 @@ struct ContentView: View {
     @State private var showSnapshot = false
     @State private var liveWebViewWidth: CGFloat?
     @State private var snapshotCoverWidth: CGFloat = 0
+    @State private var hoveredIcon: IconInfo?
     @FocusState private var isAddressFocused: Bool
 
     private var isPreview: Bool {
@@ -383,6 +581,26 @@ struct ContentView: View {
                             }
                         }
                         .clipped()
+                        .overlay(alignment: .bottomLeading) {
+                            if let icon = hoveredIcon {
+                                Text(icon.rawTag)
+                                    .font(.system(size: 11, design: .monospaced))
+                                    .foregroundStyle(.primary)
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 7)
+                                    .background(.ultraThinMaterial)
+                                    .cornerRadius(6)
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 6)
+                                            .stroke(Color.primary.opacity(0.1), lineWidth: 0.5)
+                                    )
+                                    .shadow(color: .black.opacity(0.1), radius: 4, y: 2)
+                                    .padding(8)
+                                    .allowsHitTesting(false)
+                                    .transition(.opacity)
+                            }
+                        }
+                        .animation(.easeInOut(duration: 0.15), value: hoveredIcon != nil)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -517,7 +735,7 @@ struct ContentView: View {
 
             HStack {
                 HStack(spacing: 3) {
-                  Text("Metadata")
+                  Text("Metadata Explorer")
                     .font(.system(size: 12, weight: .regular))
                     .foregroundStyle(.secondary)
                 if webModel.isLoading || (!displayAddress.isEmpty && displayAddress != ogHost && URL(string: webModel.currentURL)?.host() != nil) {
@@ -576,18 +794,11 @@ struct ContentView: View {
     // MARK: - OG Summary
 
     private var ogSummary: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            // Favicon
-            if let url = URL(string: webModel.ogData.faviconURL), !webModel.ogData.faviconURL.isEmpty {
-                AsyncImage(url: url) { phase in
-                    switch phase {
-                    case .success(let image):
-                        image
-                            .resizable()
-                            .aspectRatio(contentMode: .fit)
-                            .frame(width: 48, height: 48)
-                            .cornerRadius(12)
-                    default:
+        VStack(alignment: .leading, spacing: 30) {
+            // Icons + Title + Description
+            VStack(alignment: .leading, spacing: 14) {
+                Group {
+                    if webModel.ogData.icons.isEmpty {
                         RoundedRectangle(cornerRadius: 12)
                             .fill(Color.black.opacity(0.1))
                             .frame(width: 48, height: 48)
@@ -596,78 +807,192 @@ struct ContentView: View {
                                     .font(.system(size: 20))
                                     .foregroundStyle(.black.opacity(0.25))
                             }
+                    } else {
+                        FlowLayout(alignment: .bottomLeading, spacing: 4) {
+                            ForEach(webModel.ogData.icons.sorted { a, b in
+                                iconDisplaySize(a) > iconDisplaySize(b)
+                            }) { icon in
+                                iconTile(icon, displayAt: iconDisplaySize(icon))
+                            }
+                        }
+                    }
+                }
+                .padding(.bottom, 4)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(webModel.ogData.title.isEmpty ? "(No title)" : webModel.ogData.title)
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundStyle(.primary)
+
+                    Text(webModel.ogData.description.isEmpty ? "(No description)" : webModel.ogData.description)
+                        .font(.system(size: 12))
+                        .foregroundStyle(.primary)
+                }
+            }
+
+            // Metadata table
+            Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 20, verticalSpacing: 4) {
+                metadataGridRow("Canonical", value: webModel.ogData.canonical)
+                metadataGridRow("Robots", value: webModel.ogData.robots)
+                metadataGridRow("Generator", value: webModel.ogData.generator)
+                metadataGridRow("Lang", value: humanizedLang(webModel.ogData.lang))
+                metadataGridRow("PWA", value: webModel.ogData.hasPWA ? "Yes" : nil) {
+                    Image(systemName: webModel.ogData.hasPWA ? "checkmark" : "xmark")
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundStyle(webModel.ogData.hasPWA ? .primary : .tertiary)
+                }
+                metadataGridRow("Theme", value: webModel.ogData.themeColor.isEmpty ? nil : webModel.ogData.themeColor) {
+                    if webModel.ogData.themeColor.isEmpty {
+                        Text("—")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.tertiary)
+                    } else {
+                        HStack(spacing: 4) {
+                            RoundedRectangle(cornerRadius: 3)
+                                .fill(Color(hex: webModel.ogData.themeColor) ?? .gray)
+                                .frame(width: 11, height: 11)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 3)
+                                        .stroke(Color.black.opacity(0.1), lineWidth: 0.5)
+                                )
+                            Text(webModel.ogData.themeColor.uppercased())
+                                .font(.system(size: 10))
+                                .foregroundStyle(.primary)
+                        }
                     }
                 }
             }
 
-            // Title
-            Text(webModel.ogData.title.isEmpty ? "(No title)" : webModel.ogData.title)
-                    .font(.system(size: 16, weight: .medium))
-                    .foregroundStyle(.primary)
-
-            // Description
-            Text(webModel.ogData.description.isEmpty ? "(No description)" : webModel.ogData.description)
-                    .font(.system(size: 12))
-                    .foregroundStyle(.primary)
-
-            VStack(alignment: .leading) {
-              // Apple Touch Icon
-              HStack(spacing: 4) {
-                  Text("Apple touch icon")
-                      .font(.system(size: 12))
-                      .foregroundStyle(.primary.opacity(0.75))
-                  Image(systemName: webModel.ogData.hasAppleTouchIcon ? "checkmark" : "xmark")
-                      .font(.system(size: 10))
-              }
-
-              // Progressive Web App
-              HStack(spacing: 4) {
-                  Text("Progressive web app")
-                      .font(.system(size: 12))
-                      .foregroundStyle(.primary.opacity(0.75))
-                  Image(systemName: webModel.ogData.hasPWA ? "checkmark" : "xmark")
-                      .font(.system(size: 10))
-              }
-            }
-
-            // Theme Color
-            HStack(spacing: 6) {
-              Text("Theme:")
-                  .font(.system(size: 12))
-              if webModel.ogData.themeColor.isEmpty {
-                HStack(spacing: 4) {
-                  ZStack {
-                      RoundedRectangle(cornerRadius: 3)
-                          .stroke(Color.black.opacity(0.5), lineWidth: 1)
-                      Path { path in
-                          path.move(to: CGPoint(x: 11, y: 0))
-                          path.addLine(to: CGPoint(x: 0, y: 11))
-                      }
-                      .stroke(Color.black.opacity(0.5), lineWidth: 0.5)
-                  }
-                  .frame(width: 11, height: 11)
-                  .clipShape(RoundedRectangle(cornerRadius: 3))
-                  Text("None")
-                      .font(.system(size: 12))
-                      .foregroundStyle(.secondary)
-                }
-              } else {
-                HStack(spacing: 4) {
-                  RoundedRectangle(cornerRadius: 3)
-                      .fill(Color(hex: webModel.ogData.themeColor) ?? .gray)
-                      .frame(width: 11, height: 11)
-                      .overlay(
-                          RoundedRectangle(cornerRadius: 3)
-                              .stroke(Color.black.opacity(0.1), lineWidth: 0.5)
-                      )
-                  Text(webModel.ogData.themeColor.uppercased())
-                      .font(.system(size: 11))
-                      .foregroundStyle(.secondary)
-                }
-              }
+            if !webModel.ogData.keywords.isEmpty {
+                Text("This page defines meta keywords. Not harmful, but most search engines ignore it.")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: 230, alignment: .leading)
+                    .lineLimit(2)
+                    .padding(.top, 4)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    @ViewBuilder
+    private func metadataGridRow(_ label: String, value: String) -> some View {
+        GridRow {
+            Text(label)
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+                .gridColumnAlignment(.leading)
+            Text(value.isEmpty ? "—" : value)
+                .font(.system(size: 11))
+                .foregroundStyle(value.isEmpty ? .tertiary : .primary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+        }
+    }
+
+    @ViewBuilder
+    private func metadataGridRow<V: View>(_ label: String, value: String?, @ViewBuilder content: () -> V) -> some View {
+        GridRow {
+            Text(label)
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+                .gridColumnAlignment(.leading)
+            content()
+        }
+    }
+
+    private func iconRow(_ icon: IconInfo) -> some View {
+        let parsedSize = parseIconSize(icon.sizes)
+        let displaySize = parsedSize.map { min($0, 128) }
+        let isSVG = icon.url.lowercased().hasSuffix(".svg") || icon.rawTag.lowercased().contains("image/svg")
+
+        return HStack(alignment: .top, spacing: 10) {
+            if let url = URL(string: icon.url) {
+                if isSVG {
+                    SVGImageView(url: url, displaySize: displaySize)
+                } else {
+                    AsyncImage(url: url) { phase in
+                        switch phase {
+                        case .success(let image):
+                            if let size = displaySize {
+                                image
+                                    .resizable()
+                                    .aspectRatio(contentMode: .fit)
+                                    .frame(width: CGFloat(size), height: CGFloat(size))
+                                    .cornerRadius(CGFloat(max(2, size / 6)))
+                            } else {
+                                image
+                                    .cornerRadius(4)
+                            }
+                        default:
+                            RoundedRectangle(cornerRadius: 4)
+                                .fill(Color.black.opacity(0.1))
+                                .frame(width: CGFloat(displaySize ?? 16), height: CGFloat(displaySize ?? 16))
+                        }
+                    }
+                }
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                Text(icon.rel)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                Text(icon.sizes.isEmpty ? "intrinsic" : icon.sizes)
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        .contentShape(Rectangle())
+        .onHover { hovering in
+            hoveredIcon = hovering ? icon : nil
+        }
+    }
+
+    private func iconTile(_ icon: IconInfo, displayAt: Int) -> some View {
+        let size = CGFloat(displayAt)
+
+        return Group {
+            if let nsImage = icon.image {
+                Image(nsImage: nsImage)
+                    .resizable()
+                    .interpolation(.high)
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: size, height: size)
+                    .cornerRadius(max(2, size / 6))
+            } else {
+                RoundedRectangle(cornerRadius: max(2, size / 6))
+                    .fill(Color.black.opacity(0.1))
+                    .frame(width: size, height: size)
+            }
+        }
+        .contentShape(Rectangle())
+        .onHover { hovering in
+            hoveredIcon = hovering ? icon : nil
+        }
+    }
+
+    private func humanizedLang(_ code: String) -> String {
+        guard !code.isEmpty else { return "" }
+        let locale = Locale(identifier: code)
+        let language = Locale.current.localizedString(forIdentifier: code)
+        if let language { return language }
+        if let lang = Locale.current.localizedString(forLanguageCode: locale.language.languageCode?.identifier ?? code) {
+            return lang
+        }
+        return code
+    }
+
+    private func iconDisplaySize(_ icon: IconInfo) -> Int {
+        let rel = icon.rel.lowercased()
+        if rel.contains("apple-touch-icon") { return 48 }
+        if rel == "shortcut icon" { return 16 }
+        return 16
+    }
+
+    private func parseIconSize(_ sizes: String) -> Int? {
+        guard !sizes.isEmpty, sizes.lowercased() != "any" else { return nil }
+        let parts = sizes.lowercased().split(separator: "x")
+        guard parts.count == 2, let w = Int(parts[0]) else { return nil }
+        return w
     }
 
     private func ogSection<Content: View>(_ title: String, icon: String, @ViewBuilder content: () -> Content) -> some View {
@@ -926,11 +1251,13 @@ struct ContentView: View {
                     switch phase {
                     case .success(let image):
                         if let aspectRatio = aspectRatio {
-                            image
-                                .resizable()
-                                .aspectRatio(contentMode: .fill)
-                                .frame(maxWidth: .infinity)
+                            Color.clear
                                 .aspectRatio(aspectRatio, contentMode: .fit)
+                                .overlay(
+                                    image
+                                        .resizable()
+                                        .aspectRatio(contentMode: .fill)
+                                )
                                 .clipped()
                         } else {
                             image
