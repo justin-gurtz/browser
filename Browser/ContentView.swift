@@ -690,6 +690,7 @@ struct ContentView: View {
     @State private var liveWebViewWidth: CGFloat?
     @State private var snapshotCoverWidth: CGFloat = 0
     @State private var hoveredInfo: HoverInfo?
+    @State private var textFieldReady = false
     @State private var hoveredY: CGFloat = 0
     @State private var containerHeight: CGFloat = 0
     @State private var tooltipHeight: CGFloat = 0
@@ -867,6 +868,9 @@ struct ContentView: View {
             webModel.load("https://www.thebrowser.company/")
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                 isAddressFocused = false
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                textFieldReady = true
             }
         }
         .onChange(of: webModel.currentURL) { _, newURL in
@@ -1578,25 +1582,31 @@ struct ContentView: View {
 
     private var urlField: some View {
         ZStack(alignment: .leading) {
-            TextField("Enter URL...", text: $address)
-                .textFieldStyle(.plain)
-                .font(.system(size: 12))
-                .focused($isAddressFocused)
-                .onSubmit {
-                    isAddressFocused = false
-                    webModel.load(address)
-                }
-                .opacity(isAddressFocused ? 1 : 0)
+            if textFieldReady {
+                TextField("Enter URL...", text: $address)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 12))
+                    .focused($isAddressFocused)
+                    .disableAutocorrection(true)
+                    .textContentType(nil)
+                    .onSubmit {
+                        isAddressFocused = false
+                        webModel.load(address)
+                    }
+                    .opacity(isAddressFocused ? 1 : 0)
+            }
 
             if !isAddressFocused {
                 Text(displayAddress.isEmpty ? "Enter URL..." : displayAddress)
                     .font(.system(size: 12))
                     .foregroundStyle(displayAddress.isEmpty ? .gray : .black)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .allowsHitTesting(false)
             }
         }
         .padding(.horizontal, 8)
         .frame(height: 28)
+        .frame(maxWidth: .infinity)
         .modifier(HoverBackground(isActive: isAddressFocused))
         .onTapGesture { isAddressFocused = true }
     }
