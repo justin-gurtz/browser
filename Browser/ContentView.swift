@@ -647,6 +647,7 @@ struct ContentView: View {
     @State private var hoveredInfo: HoverInfo?
     @State private var hoveredY: CGFloat = 0
     @State private var containerHeight: CGFloat = 0
+    @State private var tooltipHeight: CGFloat = 0
     @State private var hoverDismissWork: DispatchWorkItem?
     @State private var hoverAppearWork: DispatchWorkItem?
     @FocusState private var isAddressFocused: Bool
@@ -670,8 +671,15 @@ struct ContentView: View {
     }
 
     private var tooltipOffsetFromCenter: CGFloat {
-        // hoveredY is from top of container, convert to offset from center
-        hoveredY - containerHeight / 2
+        let edgeInset: CGFloat = 14
+        let halfContainer = containerHeight / 2
+        let halfTooltip = tooltipHeight / 2
+        // Top: 7px chrome + 39px toolbar + 14px inset
+        let minY: CGFloat = 7 + 39 + edgeInset + halfTooltip
+        // Bottom: 7px chrome + 14px inset
+        let maxY = containerHeight - 7 - edgeInset - halfTooltip
+        let clampedY = min(max(hoveredY, minY), max(minY, maxY))
+        return clampedY - halfContainer
     }
 
     var body: some View {
@@ -784,12 +792,17 @@ struct ContentView: View {
                 )
                 .shadow(color: .black.opacity(0.12), radius: 12, x: 0, y: 4)
                 .compositingGroup()
+                .background(GeometryReader { geo in
+                    Color.clear.onChange(of: geo.size.height) { _, h in tooltipHeight = h }
+                        .onAppear { tooltipHeight = geo.size.height }
+                })
                 .padding(.trailing, sidebarOpen ? 348 : 21)
                 .offset(y: tooltipOffsetFromCenter)
                 .allowsHitTesting(false)
                 .transition(.opacity)
             }
         }
+        .ignoresSafeArea()
         .frame(minWidth: 800, minHeight: 600)
         .background(
             LinearGradient(
