@@ -1015,6 +1015,15 @@ struct ContentView: View {
                         Color.clear
                             .onChange(of: geo.frame(in: .named("sidebarScroll")).minY) { _, newValue in
                                 sidebarScrollOffset = -newValue
+                                if hoveredInfo != nil {
+                                    hoverAppearWork?.cancel()
+                                    hoverAppearWork = nil
+                                    hoverDismissWork?.cancel()
+                                    hoverDismissWork = nil
+                                    withAnimation(.easeInOut(duration: 0.15)) {
+                                        hoveredInfo = nil
+                                    }
+                                }
                             }
                     }
                 )
