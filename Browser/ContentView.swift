@@ -111,7 +111,7 @@ struct OGMetadata: Equatable {
 
 // MARK: - WebView Model
 
-class WebViewModel: ObservableObject {
+class WebViewModel: NSObject, ObservableObject, WKScriptMessageHandler {
     let webView = WKWebView()
 
     @Published var canGoBack = false
@@ -123,12 +123,57 @@ class WebViewModel: ObservableObject {
 
     private var observers: [NSKeyValueObservation] = []
     private var navigationDelegate: WebNavigationDelegate?
+    private var headObserverDebounce: DispatchWorkItem?
 
-    init() {
+    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+        guard message.name == "headChanged" else { return }
+        // Debounce: pages often mutate <head> many times in quick succession
+        headObserverDebounce?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            self?.fetchOGMetadata()
+        }
+        headObserverDebounce = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: work)
+    }
+
+    override init() {
+        super.init()
         let delegate = WebNavigationDelegate(model: self)
         self.navigationDelegate = delegate
         webView.navigationDelegate = delegate
         webView.uiDelegate = delegate
+
+        // Inject MutationObserver to watch <head> for meta/link tag changes
+        let observerJS = """
+        (function() {
+            if (window.__headObserverInstalled) return;
+            window.__headObserverInstalled = true;
+            var observer = new MutationObserver(function(mutations) {
+                var relevant = mutations.some(function(m) {
+                    if (m.type === 'attributes') {
+                        var t = m.target.tagName;
+                        return t === 'META' || t === 'LINK';
+                    }
+                    for (var i = 0; i < m.addedNodes.length; i++) {
+                        var t = m.addedNodes[i].tagName;
+                        if (t === 'META' || t === 'LINK') return true;
+                    }
+                    for (var i = 0; i < m.removedNodes.length; i++) {
+                        var t = m.removedNodes[i].tagName;
+                        if (t === 'META' || t === 'LINK') return true;
+                    }
+                    return false;
+                });
+                if (relevant) {
+                    window.webkit.messageHandlers.headChanged.postMessage('changed');
+                }
+            });
+            observer.observe(document.head, { childList: true, attributes: true, subtree: true });
+        })();
+        """
+        let script = WKUserScript(source: observerJS, injectionTime: .atDocumentEnd, forMainFrameOnly: true)
+        webView.configuration.userContentController.addUserScript(script)
+        webView.configuration.userContentController.add(self, name: "headChanged")
 
         observers = [
             webView.observe(\.canGoBack, options: .new) { [weak self] _, change in
