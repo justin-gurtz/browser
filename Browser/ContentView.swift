@@ -88,9 +88,11 @@ struct OGMetadata: Equatable {
     var title: String = ""
     var description: String = ""
     var imageURL: String = ""
+    var imageTag: String = ""
     var twitterTitle: String = ""
     var twitterDescription: String = ""
     var twitterImage: String = ""
+    var twitterImageTag: String = ""
     var faviconURL: String = ""
     var icons: [IconInfo] = []
     var themeColor: String = ""
@@ -101,6 +103,10 @@ struct OGMetadata: Equatable {
     var lang: String = ""
     var hasPWA: Bool = false
     var host: String = ""
+    var imageWidth: Int?
+    var imageHeight: Int?
+    var twitterImageWidth: Int?
+    var twitterImageHeight: Int?
 }
 
 // MARK: - WebView Model
@@ -178,6 +184,11 @@ class WebViewModel: ObservableObject {
                              document.querySelector('meta[name="' + property + '"]');
                     return el ? el.getAttribute('content') || '' : '';
                 }
+                function getMetaTag(property) {
+                    var el = document.querySelector('meta[property="' + property + '"]') ||
+                             document.querySelector('meta[name="' + property + '"]');
+                    return el ? el.outerHTML : '';
+                }
                 var icons = [];
                 document.querySelectorAll('link[rel="icon"], link[rel="shortcut icon"], link[rel="apple-touch-icon"], link[rel="apple-touch-icon-precomposed"]').forEach(function(el) {
                     var href = el.getAttribute('href') || '';
@@ -226,9 +237,11 @@ class WebViewModel: ObservableObject {
                     title: getMeta('og:title') || document.title || '',
                     description: getMeta('og:description') || getMeta('description') || '',
                     image: getMeta('og:image') || '',
+                    imageTag: getMetaTag('og:image'),
+                    twitterImageTag: getMetaTag('twitter:image') || getMetaTag('twitter:image:src'),
                     twitterTitle: getMeta('twitter:title') || getMeta('og:title') || document.title || '',
                     twitterDescription: getMeta('twitter:description') || getMeta('og:description') || getMeta('description') || '',
-                    twitterImage: getMeta('twitter:image') || getMeta('og:image') || '',
+                    twitterImage: getMeta('twitter:image') || getMeta('twitter:image:src') || getMeta('og:image') || '',
                     favicon: favicon || (document.location.origin + '/favicon.ico'),
                     themeColor: getMeta('theme-color') || '',
                     icons: icons,
@@ -272,9 +285,11 @@ class WebViewModel: ObservableObject {
                 title: dict["title"] as? String ?? "",
                 description: dict["description"] as? String ?? "",
                 imageURL: dict["image"] as? String ?? "",
+                imageTag: dict["imageTag"] as? String ?? "",
                 twitterTitle: dict["twitterTitle"] as? String ?? "",
                 twitterDescription: dict["twitterDescription"] as? String ?? "",
                 twitterImage: dict["twitterImage"] as? String ?? "",
+                twitterImageTag: dict["twitterImageTag"] as? String ?? "",
                 faviconURL: dict["favicon"] as? String ?? "",
                 icons: icons,
                 themeColor: dict["themeColor"] as? String ?? "",
@@ -287,15 +302,33 @@ class WebViewModel: ObservableObject {
                 host: host
             )
 
-            // Prefetch OG images into URL cache
+            // Prefetch OG images into URL cache and read dimensions
             let ogImageURLs = [metadata.imageURL, metadata.twitterImage, metadata.faviconURL]
                 .compactMap { URL(string: $0) }
                 .filter { !$0.absoluteString.isEmpty }
 
+            var ogImageSize: (Int, Int)? = nil
+            var twitterImageSize: (Int, Int)? = nil
+
             let group = DispatchGroup()
             for url in ogImageURLs {
                 group.enter()
-                URLSession.shared.dataTask(with: url) { _, _, _ in
+                URLSession.shared.dataTask(with: url) { data, _, _ in
+                    if let data, let nsImage = NSImage(data: data) {
+                        let rep = nsImage.representations.first
+                        let pw = rep?.pixelsWide ?? 0
+                        let ph = rep?.pixelsHigh ?? 0
+                        let w = pw > 0 ? pw : Int(nsImage.size.width)
+                        let h = ph > 0 ? ph : Int(nsImage.size.height)
+                        if w > 0 && h > 0 {
+                            if url.absoluteString == metadata.imageURL && ogImageSize == nil {
+                                ogImageSize = (w, h)
+                            }
+                            if url.absoluteString == metadata.twitterImage && twitterImageSize == nil {
+                                twitterImageSize = (w, h)
+                            }
+                        }
+                    }
                     group.leave()
                 }.resume()
             }
@@ -321,6 +354,14 @@ class WebViewModel: ObservableObject {
 
             group.notify(queue: .main) {
                 metadata.icons = resolvedIcons
+                if let (w, h) = ogImageSize {
+                    metadata.imageWidth = w
+                    metadata.imageHeight = h
+                }
+                if let (w, h) = twitterImageSize {
+                    metadata.twitterImageWidth = w
+                    metadata.twitterImageHeight = h
+                }
                 self?.ogData = metadata
 
                 // Parse page background color from CSS rgb() string
@@ -517,6 +558,81 @@ struct HoverBackground: ViewModifier {
     }
 }
 
+// MARK: - Hover Info
+
+extension String {
+    var decodingHTMLEntities: String {
+        guard contains("&") else { return self }
+        var result = self
+        let entities = [("&amp;", "&"), ("&lt;", "<"), ("&gt;", ">"), ("&quot;", "\""), ("&#39;", "'"), ("&apos;", "'")]
+        for (entity, char) in entities {
+            result = result.replacingOccurrences(of: entity, with: char)
+        }
+        return result
+    }
+}
+
+struct HoverInfo: Equatable {
+    var type: String       // e.g. "icon", "shortcut icon", "apple-touch-icon", "og:image", "twitter:image"
+    var size: String       // e.g. "(180×180)", "unknown size"
+    var rawTag: String     // the raw HTML tag
+    var warning: String?   // e.g. "Failed to load" shown in red with warning icon
+    var image: NSImage?    // prefetched icon image
+    var imageURL: String?  // URL for OG/twitter images (loaded via AsyncImage)
+}
+
+
+struct HoverTracker: ViewModifier {
+    let info: HoverInfo
+    @Binding var hoveredInfo: HoverInfo?
+    @Binding var hoveredY: CGFloat
+    @Binding var hoverDismissWork: DispatchWorkItem?
+    @Binding var hoverAppearWork: DispatchWorkItem?
+
+    func body(content: Content) -> some View {
+        content
+            .contentShape(Rectangle())
+            .overlay(
+                GeometryReader { geo in
+                    Color.clear
+                        .onHover { hovering in
+                            let fade = Animation.easeInOut(duration: 0.15)
+                            if hovering {
+                                hoverDismissWork?.cancel()
+                                hoverDismissWork = nil
+                                hoveredY = geo.frame(in: .named("mainZStack")).midY
+                                // If already showing a tooltip, update immediately (moving between items)
+                                if hoveredInfo != nil {
+                                    hoverAppearWork?.cancel()
+                                    hoverAppearWork = nil
+                                    hoveredInfo = info
+                                } else {
+                                    hoverAppearWork?.cancel()
+                                    let work = DispatchWorkItem {
+                                        withAnimation(fade) {
+                                            hoveredInfo = info
+                                        }
+                                    }
+                                    hoverAppearWork = work
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.25, execute: work)
+                                }
+                            } else {
+                                hoverAppearWork?.cancel()
+                                hoverAppearWork = nil
+                                let work = DispatchWorkItem {
+                                    withAnimation(fade) {
+                                        hoveredInfo = nil
+                                    }
+                                }
+                                hoverDismissWork = work
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.25, execute: work)
+                            }
+                        }
+                }
+            )
+    }
+}
+
 // MARK: - Content View
 
 struct ContentView: View {
@@ -528,7 +644,11 @@ struct ContentView: View {
     @State private var showSnapshot = false
     @State private var liveWebViewWidth: CGFloat?
     @State private var snapshotCoverWidth: CGFloat = 0
-    @State private var hoveredIcon: IconInfo?
+    @State private var hoveredInfo: HoverInfo?
+    @State private var hoveredY: CGFloat = 0
+    @State private var containerHeight: CGFloat = 0
+    @State private var hoverDismissWork: DispatchWorkItem?
+    @State private var hoverAppearWork: DispatchWorkItem?
     @FocusState private var isAddressFocused: Bool
 
     private var isPreview: Bool {
@@ -547,6 +667,11 @@ struct ContentView: View {
             display = String(display.dropFirst(4))
         }
         return display
+    }
+
+    private var tooltipOffsetFromCenter: CGFloat {
+        // hoveredY is from top of container, convert to offset from center
+        hoveredY - containerHeight / 2
     }
 
     var body: some View {
@@ -581,32 +706,13 @@ struct ContentView: View {
                             }
                         }
                         .clipped()
-                        .overlay(alignment: .bottomLeading) {
-                            if let icon = hoveredIcon {
-                                Text(icon.rawTag)
-                                    .font(.system(size: 11, design: .monospaced))
-                                    .foregroundStyle(.primary)
-                                    .padding(.horizontal, 10)
-                                    .padding(.vertical, 7)
-                                    .background(.ultraThinMaterial)
-                                    .cornerRadius(6)
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 6)
-                                            .stroke(Color.primary.opacity(0.1), lineWidth: 0.5)
-                                    )
-                                    .shadow(color: .black.opacity(0.1), radius: 4, y: 2)
-                                    .padding(8)
-                                    .allowsHitTesting(false)
-                                    .transition(.opacity)
-                            }
-                        }
-                        .animation(.easeInOut(duration: 0.15), value: hoveredIcon != nil)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color.white)
             .cornerRadius(10)
+            .shadow(color: .black.opacity(0.25), radius: 2, x: 0, y: 0)
             .padding(EdgeInsets(
                 top: 7,
                 leading: 7,
@@ -618,8 +724,72 @@ struct ContentView: View {
                 ogSidebar
                     .transition(.move(edge: .trailing).combined(with: .opacity))
             }
+
         }
         .ignoresSafeArea()
+        .coordinateSpace(name: "mainZStack")
+        .background(GeometryReader { geo in
+            Color.clear.onAppear { containerHeight = geo.size.height }
+                .onChange(of: geo.size.height) { _, h in containerHeight = h }
+        })
+        .overlay(alignment: .trailing) {
+            if let info = hoveredInfo {
+                VStack(alignment: .leading, spacing: 0) {
+                    if let nsImage = info.image {
+                        Image(nsImage: nsImage)
+                            .interpolation(.high)
+                            .cornerRadius(4)
+                            .padding(.bottom, 8)
+                    } else if let urlStr = info.imageURL, let url = URL(string: urlStr) {
+                        AsyncImage(url: url) { phase in
+                            if case .success(let image) = phase {
+                                image
+                                    .resizable()
+                                    .aspectRatio(contentMode: .fit)
+                                    .cornerRadius(6)
+                            }
+                        }
+                        .padding(.bottom, 8)
+                    }
+                    HStack(spacing: 6) {
+                        Text(info.type)
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(.primary)
+                        if let warning = info.warning {
+                            HStack(spacing: 3) {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                    .font(.system(size: 9))
+                                Text(warning)
+                                    .font(.system(size: 11, weight: .medium))
+                            }
+                            .foregroundStyle(.red)
+                        } else {
+                            Text(info.size)
+                                .font(.system(size: 11))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .padding(.bottom, 4)
+                    Text(info.rawTag.decodingHTMLEntities)
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                }
+                .padding(12)
+                .frame(width: 320, alignment: .leading)
+                .background(Color(white: 0.95))
+                .cornerRadius(10)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10)
+                        .stroke(Color.white, lineWidth: 1.5)
+                )
+                .shadow(color: .black.opacity(0.12), radius: 12, x: 0, y: 4)
+                .compositingGroup()
+                .padding(.trailing, sidebarOpen ? 348 : 21)
+                .offset(y: tooltipOffsetFromCenter)
+                .allowsHitTesting(false)
+                .transition(.opacity)
+            }
+        }
         .frame(minWidth: 800, minHeight: 600)
         .background(
             LinearGradient(
@@ -633,8 +803,8 @@ struct ContentView: View {
         )
         .background(isPreview ? nil : WindowConfiguratorView())
         .onAppear {
-            address = "https://elevenlabs.io/voice-library"
-            webModel.load("https://elevenlabs.io/voice-library")
+            address = "https://www.thebrowser.company/"
+            webModel.load("https://www.thebrowser.company/")
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                 isAddressFocused = false
             }
@@ -768,7 +938,7 @@ struct ContentView: View {
                         .padding(.top, 12)
 
                   VStack(spacing: 24) {
-                      ogSection("X", icon: "x-twitter") { xTwitterCard }
+                      ogSection("Link Preview", icon: "x-twitter") { xTwitterCard }
                       ogSection("Slack", icon: "slack") { slackCard }
                     ogSection("WhatsApp", icon: "whatsapp") { whatsAppCard }
                     ogSection("Facebook", icon: "facebook") { facebookCard }
@@ -810,7 +980,9 @@ struct ContentView: View {
                     } else {
                         FlowLayout(alignment: .bottomLeading, spacing: 4) {
                             ForEach(webModel.ogData.icons.sorted { a, b in
-                                iconDisplaySize(a) > iconDisplaySize(b)
+                                let da = iconDisplaySize(a), db = iconDisplaySize(b)
+                                if da != db { return da > db }
+                                return (a.pixelWidth ?? 0) > (b.pixelWidth ?? 0)
                             }) { icon in
                                 iconTile(icon, displayAt: iconDisplaySize(icon))
                             }
@@ -941,10 +1113,7 @@ struct ContentView: View {
                     .foregroundStyle(.tertiary)
             }
         }
-        .contentShape(Rectangle())
-        .onHover { hovering in
-            hoveredIcon = hovering ? icon : nil
-        }
+        .modifier(HoverTracker(info: hoverInfoForIcon(icon), hoveredInfo: $hoveredInfo, hoveredY: $hoveredY, hoverDismissWork: $hoverDismissWork, hoverAppearWork: $hoverAppearWork))
     }
 
     private func iconTile(_ icon: IconInfo, displayAt: Int) -> some View {
@@ -964,10 +1133,32 @@ struct ContentView: View {
                     .frame(width: size, height: size)
             }
         }
-        .contentShape(Rectangle())
-        .onHover { hovering in
-            hoveredIcon = hovering ? icon : nil
+        .modifier(HoverTracker(info: hoverInfoForIcon(icon), hoveredInfo: $hoveredInfo, hoveredY: $hoveredY, hoverDismissWork: $hoverDismissWork, hoverAppearWork: $hoverAppearWork))
+    }
+
+    private func hoverInfoForIcon(_ icon: IconInfo) -> HoverInfo {
+        let rel = icon.rel.lowercased()
+        let type: String
+        if rel.contains("apple-touch-icon") {
+            type = "Apple Touch Icon"
+        } else if rel == "shortcut icon" {
+            type = "Shortcut Icon"
+        } else {
+            type = "Icon"
         }
+        let size: String
+        let warning: String?
+        if let w = icon.pixelWidth, let h = icon.pixelHeight {
+            size = "\(w)×\(h)"
+            warning = nil
+        } else if icon.image == nil {
+            size = ""
+            warning = "Failed to load"
+        } else {
+            size = "unknown size"
+            warning = nil
+        }
+        return HoverInfo(type: type, size: size, rawTag: icon.rawTag, warning: warning, image: icon.image)
     }
 
     private func humanizedLang(_ code: String) -> String {
@@ -1002,7 +1193,7 @@ struct ContentView: View {
                     .resizable()
                     .aspectRatio(contentMode: .fit)
                     .frame(width: 14, height: 14)
-                Text("\(title) Preview:")
+                Text(title)
                     .font(.system(size: 11, weight: .medium))
             }
             .opacity(0.8)
@@ -1020,9 +1211,17 @@ struct ContentView: View {
         webModel.ogData.twitterImage.isEmpty ? webModel.ogData.imageURL : webModel.ogData.twitterImage
     }
 
+    private var twitterImageTag: String? {
+        let tag = webModel.ogData.twitterImageTag
+        if !tag.isEmpty { return tag }
+        let ogTag = webModel.ogData.imageTag
+        if !ogTag.isEmpty { return ogTag }
+        return nil
+    }
+
     private var xTwitterCard: some View {
         VStack(alignment: .leading, spacing: 0) {
-            ogImage(aspectRatio: 1.91, imageURL: twitterImage)
+            ogImage(aspectRatio: 1.91, imageURL: twitterImage, rawTag: twitterImageTag, hoverType: webModel.ogData.twitterImageTag.isEmpty ? "og:image" : "twitter:image")
                 .overlay(alignment: .bottomLeading) {
                     if !twitterTitle.isEmpty {
                         Text(twitterTitle)
@@ -1096,7 +1295,7 @@ struct ContentView: View {
                         .lineLimit(3)
                 }
 
-                ogImage(aspectRatio: 1.91)
+                ogImage(aspectRatio: 1.91, imageURL: twitterImage, rawTag: twitterImageTag, hoverType: webModel.ogData.twitterImageTag.isEmpty ? "og:image" : "twitter:image")
             }
             .padding(.leading, 8)
         }
@@ -1243,9 +1442,32 @@ struct ContentView: View {
 
     // MARK: - OG Image
 
-    private func ogImage(height: CGFloat? = nil, aspectRatio: CGFloat? = nil, imageURL: String? = nil, cornerRadius: CGFloat = 10) -> some View {
-        Group {
-            let src = imageURL ?? webModel.ogData.imageURL
+    private func ogImage(height: CGFloat? = nil, aspectRatio: CGFloat? = nil, imageURL: String? = nil, cornerRadius: CGFloat = 10, rawTag: String? = nil, hoverType: String = "og:image") -> some View {
+        let src = imageURL ?? webModel.ogData.imageURL
+        let tag = rawTag ?? webModel.ogData.imageTag
+        let info: HoverInfo = {
+            if tag.isEmpty && src.isEmpty {
+                return HoverInfo(type: hoverType, size: "", rawTag: "Not defined")
+            }
+            let rawTagDisplay = tag.isEmpty ? src : tag
+            if let url = URL(string: src), url.scheme?.hasPrefix("http") == true, url.host() != nil {
+                // Look up prefetched dimensions
+                let size: String
+                if src == webModel.ogData.twitterImage,
+                   let w = webModel.ogData.twitterImageWidth, let h = webModel.ogData.twitterImageHeight {
+                    size = "\(w)×\(h)"
+                } else if let w = webModel.ogData.imageWidth, let h = webModel.ogData.imageHeight,
+                          (src == webModel.ogData.imageURL || imageURL == nil) {
+                    size = "\(w)×\(h)"
+                } else {
+                    size = "unknown size"
+                }
+                return HoverInfo(type: hoverType, size: size, rawTag: rawTagDisplay, imageURL: url.absoluteString)
+            }
+            return HoverInfo(type: hoverType, size: "", rawTag: rawTagDisplay, warning: "Malformed URL")
+        }()
+
+        return Group {
             if let url = URL(string: src), !src.isEmpty {
                 AsyncImage(url: url) { phase in
                     switch phase {
@@ -1277,6 +1499,7 @@ struct ContentView: View {
         }
         .background(Color.white)
         .cornerRadius(cornerRadius)
+        .modifier(HoverTracker(info: info, hoveredInfo: $hoveredInfo, hoveredY: $hoveredY, hoverDismissWork: $hoverDismissWork, hoverAppearWork: $hoverAppearWork))
     }
 
     private func imagePlaceholder(height: CGFloat? = nil, aspectRatio: CGFloat? = nil) -> some View {
