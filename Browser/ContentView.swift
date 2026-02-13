@@ -792,6 +792,7 @@ struct ContentView: View {
                         Image(nsImage: nsImage)
                             .interpolation(.high)
                             .cornerRadius(4)
+                            .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.black.opacity(0.25), lineWidth: 0.5))
                             .padding(.bottom, 8)
                     } else if let urlStr = info.imageURL, let url = URL(string: urlStr) {
                         AsyncImage(url: url) { phase in
@@ -800,6 +801,7 @@ struct ContentView: View {
                                     .resizable()
                                     .aspectRatio(contentMode: .fit)
                                     .cornerRadius(6)
+                                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.black.opacity(0.25), lineWidth: 0.5))
                             }
                         }
                         .padding(.bottom, 8)
@@ -1083,7 +1085,7 @@ struct ContentView: View {
                                 .frame(width: 11, height: 11)
                                 .overlay(
                                     RoundedRectangle(cornerRadius: 3)
-                                        .stroke(Color.black.opacity(0.1), lineWidth: 0.5)
+                                        .stroke(Color.black.opacity(0.25), lineWidth: 0.5)
                                 )
                             Text(webModel.ogData.themeColor.uppercased())
                                 .font(.system(size: 10))
@@ -1466,7 +1468,7 @@ struct ContentView: View {
                                     .clipShape(Circle())
                                     .overlay(
                                         Circle()
-                                            .stroke(Color.black.opacity(0.1), lineWidth: 0.5)
+                                            .stroke(Color.black.opacity(0.25), lineWidth: 0.5)
                                     )
                             default:
                                 Image(systemName: "globe")
