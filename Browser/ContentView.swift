@@ -102,6 +102,7 @@ struct OGMetadata: Equatable {
     var generator: String = ""
     var lang: String = ""
     var hasPWA: Bool = false
+    var hasViewport: Bool = false
     var host: String = ""
     var imageWidth: Int?
     var imageHeight: Int?
@@ -251,6 +252,7 @@ class WebViewModel: NSObject, ObservableObject, WKScriptMessageHandler {
                 });
                 var favicon = icons.length > 0 ? icons[0].url : '';
                 var hasPWA = !!document.querySelector('link[rel="manifest"]');
+                var hasViewport = !!document.querySelector('meta[name="viewport"]');
                 var canonicalEl = document.querySelector('link[rel="canonical"]');
                 var canonical = canonicalEl ? canonicalEl.getAttribute('href') || '' : '';
                 var robots = getMeta('robots') || getMeta('googlebot') || '';
@@ -296,6 +298,7 @@ class WebViewModel: NSObject, ObservableObject, WKScriptMessageHandler {
                     generator: generator,
                     lang: lang,
                     hasPWA: hasPWA,
+                    hasViewport: hasViewport,
                     bgColor: bgColor
                 });
             })()
@@ -344,6 +347,7 @@ class WebViewModel: NSObject, ObservableObject, WKScriptMessageHandler {
                 generator: dict["generator"] as? String ?? "",
                 lang: dict["lang"] as? String ?? "",
                 hasPWA: dict["hasPWA"] as? Bool ?? false,
+                hasViewport: dict["hasViewport"] as? Bool ?? false,
                 host: host
             )
 
@@ -969,6 +973,9 @@ struct ContentView: View {
 
             HStack {
                 HStack(spacing: 3) {
+                  Image(systemName: "text.magnifyingglass")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
                   Text("Metadata Explorer")
                     .font(.system(size: 12, weight: .regular))
                     .foregroundStyle(.secondary)
@@ -982,7 +989,7 @@ struct ContentView: View {
                 Spacer()
                 Button(action: { toggleSidebar() }) {
                     Image(systemName: "xmark")
-                        .font(.system(size: 14))
+                        .font(.system(size: 14, weight: .medium))
                         .foregroundStyle(.secondary)
                         .frame(width: 28, height: 28)
                         .contentShape(Rectangle())
@@ -1076,74 +1083,136 @@ struct ContentView: View {
             }
 
             // Metadata table
-            Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 20, verticalSpacing: 4) {
-                metadataGridRow("Canonical", value: webModel.ogData.canonical)
-                metadataGridRow("Robots", value: webModel.ogData.robots)
-                metadataGridRow("Generator", value: webModel.ogData.generator)
-                metadataGridRow("Lang", value: humanizedLang(webModel.ogData.lang))
-                metadataGridRow("PWA", value: webModel.ogData.hasPWA ? "Yes" : nil) {
-                    Image(systemName: webModel.ogData.hasPWA ? "checkmark" : "xmark")
-                        .font(.system(size: 9, weight: .medium))
-                        .foregroundStyle(webModel.ogData.hasPWA ? .primary : .tertiary)
-                }
-                metadataGridRow("Theme", value: webModel.ogData.themeColor.isEmpty ? nil : webModel.ogData.themeColor) {
-                    if webModel.ogData.themeColor.isEmpty {
-                        Text("—")
-                            .font(.system(size: 11))
-                            .foregroundStyle(.tertiary)
-                    } else {
-                        HStack(spacing: 4) {
-                            RoundedRectangle(cornerRadius: 3)
-                                .fill(Color(hex: webModel.ogData.themeColor) ?? .gray)
-                                .frame(width: 11, height: 11)
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 3)
-                                        .stroke(Color.black.opacity(0.25), lineWidth: 0.5)
-                                )
-                            Text(webModel.ogData.themeColor.uppercased())
-                                .font(.system(size: 10))
-                                .foregroundStyle(.primary)
-                        }
+            let gridDivider = Color.black.opacity(0.12)
+            VStack(alignment: .leading, spacing: 8) {
+                VStack(spacing: 0) {
+                    // Row 1: Theme / Generator
+                    HStack(spacing: 0) {
+                        metadataCellTheme()
+                        gridDivider.frame(width: 0.5)
+                        metadataCell("Generator", value: webModel.ogData.generator)
                     }
+                    .fixedSize(horizontal: false, vertical: true)
+                    gridDivider.frame(height: 0.5)
+                    // Row 2: Mobile / Language
+                    HStack(spacing: 0) {
+                        metadataCell("Mobile", enabled: webModel.ogData.hasViewport)
+                        gridDivider.frame(width: 0.5)
+                        metadataCell("Language", value: humanizedLang(webModel.ogData.lang))
+                    }
+                    .fixedSize(horizontal: false, vertical: true)
+                    gridDivider.frame(height: 0.5)
+                    // Row 3: Robots / PWA
+                    HStack(spacing: 0) {
+                        metadataCell("Robots", value: webModel.ogData.robots)
+                        gridDivider.frame(width: 0.5)
+                        metadataCell("PWA", enabled: webModel.ogData.hasPWA)
+                    }
+                    .fixedSize(horizontal: false, vertical: true)
+                    gridDivider.frame(height: 0.5)
+                    // Row 4: Canonical (full width)
+                    metadataCell("Canonical", value: webModel.ogData.canonical)
                 }
-            }
+                .background(Color.black.opacity(0.04))
+                .cornerRadius(8)
+                .overlay(RoundedRectangle(cornerRadius: 8).stroke(gridDivider, lineWidth: 0.5))
 
-            if !webModel.ogData.keywords.isEmpty {
-                Text("This page defines meta keywords. Not harmful, but most search engines ignore it.")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: 230, alignment: .leading)
-                    .lineLimit(2)
-                    .padding(.top, 4)
+                if !webModel.ogData.keywords.isEmpty {
+                    HStack(alignment: .center, spacing: 8) {
+                        Image(systemName: "exclamationmark.circle")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                        (Text("Note: ").font(.system(size: 10, weight: .semibold)) + Text("This page defines meta keywords. Not harmful, but most search engines ignore it.").font(.system(size: 10)))
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: 260, alignment: .leading)
+                            .lineLimit(2)
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 8)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.black.opacity(0.04))
+                    .cornerRadius(8)
+                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(gridDivider, lineWidth: 0.5))
+                }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     @ViewBuilder
-    private func metadataGridRow(_ label: String, value: String) -> some View {
-        GridRow {
-            Text(label)
-                .font(.system(size: 11))
+    private func metadataCell(_ label: String, value: String) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(label.uppercased())
+                .font(.system(size: 9, weight: .medium))
                 .foregroundStyle(.secondary)
-                .gridColumnAlignment(.leading)
             Text(value.isEmpty ? "—" : value)
                 .font(.system(size: 11))
                 .foregroundStyle(value.isEmpty ? .tertiary : .primary)
                 .lineLimit(1)
                 .truncationMode(.middle)
         }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     @ViewBuilder
-    private func metadataGridRow<V: View>(_ label: String, value: String?, @ViewBuilder content: () -> V) -> some View {
-        GridRow {
-            Text(label)
-                .font(.system(size: 11))
+    private func metadataCell(_ label: String, enabled: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(label.uppercased())
+                .font(.system(size: 9, weight: .medium))
                 .foregroundStyle(.secondary)
-                .gridColumnAlignment(.leading)
-            content()
+            if enabled {
+                HStack(spacing: 3) {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 8, weight: .bold))
+                    Text("Enabled")
+                        .font(.system(size: 10, weight: .medium))
+                }
+                .foregroundStyle(Color(red: 0.75, green: 1.0, blue: 0.78))
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(Color(red: 0.3, green: 0.65, blue: 0.35))
+                .clipShape(Capsule())
+            } else {
+                Text("—")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.tertiary)
+            }
         }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    @ViewBuilder
+    private func metadataCellTheme() -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text("THEME")
+                .font(.system(size: 9, weight: .medium))
+                .foregroundStyle(.secondary)
+            if webModel.ogData.themeColor.isEmpty {
+                Text("—")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.tertiary)
+            } else {
+                HStack(spacing: 4) {
+                    RoundedRectangle(cornerRadius: 3)
+                        .fill(Color(hex: webModel.ogData.themeColor) ?? .gray)
+                        .frame(width: 11, height: 11)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 3)
+                                .stroke(Color.black.opacity(0.25), lineWidth: 0.5)
+                        )
+                    Text(webModel.ogData.themeColor.uppercased())
+                        .font(.system(size: 11))
+                        .foregroundStyle(.primary)
+                }
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func iconRow(_ icon: IconInfo) -> some View {
