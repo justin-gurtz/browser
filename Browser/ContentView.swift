@@ -1090,13 +1090,37 @@ struct ContentView: View {
                                     .foregroundStyle(.black.opacity(0.25))
                             }
                     } else {
-                        FlowLayout(alignment: .bottomLeading, spacing: 4) {
-                            ForEach(webModel.ogData.icons.sorted { a, b in
-                                let da = iconDisplaySize(a), db = iconDisplaySize(b)
-                                if da != db { return da > db }
-                                return (a.pixelWidth ?? 0) > (b.pixelWidth ?? 0)
-                            }) { icon in
-                                iconTile(icon, displayAt: iconDisplaySize(icon))
+                        let touchIcons = webModel.ogData.icons.filter { $0.rel.lowercased().contains("apple-touch-icon") }
+                        let favicons = webModel.ogData.icons.filter { !$0.rel.lowercased().contains("apple-touch-icon") }
+
+                        VStack(alignment: .leading, spacing: 6) {
+                            if !touchIcons.isEmpty {
+                                Text(touchIcons.count == 1 ? "APPLE TOUCH ICON" : "APPLE TOUCH ICONS")
+                                    .font(.system(size: 9, weight: .medium))
+                                    .foregroundStyle(.secondary)
+                            }
+                            FlowLayout(alignment: .bottomLeading, spacing: 14) {
+                                HStack(spacing: 4) {
+                                    ForEach(touchIcons.sorted { a, b in
+                                        (a.pixelWidth ?? 0) > (b.pixelWidth ?? 0)
+                                    }) { icon in
+                                        iconTile(icon, displayAt: iconDisplaySize(icon))
+                                    }
+                                }
+                                if !favicons.isEmpty {
+                                    VStack(alignment: .leading, spacing: 6) {
+                                        Text(favicons.count == 1 ? "FAVICON" : "FAVICONS")
+                                            .font(.system(size: 9, weight: .medium))
+                                            .foregroundStyle(.secondary)
+                                        HStack(spacing: 4) {
+                                            ForEach(favicons.sorted { a, b in
+                                                (a.pixelWidth ?? 0) > (b.pixelWidth ?? 0)
+                                            }) { icon in
+                                                iconTile(icon, displayAt: iconDisplaySize(icon))
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
