@@ -594,6 +594,15 @@ struct SVGImageView: View {
     }
 }
 
+struct Line: Shape {
+    func path(in rect: CGRect) -> Path {
+        Path { path in
+            path.move(to: CGPoint(x: 0, y: rect.midY))
+            path.addLine(to: CGPoint(x: rect.width, y: rect.midY))
+        }
+    }
+}
+
 // MARK: - Styles
 
 struct HoverButtonStyle: ButtonStyle {
@@ -993,10 +1002,12 @@ struct ContentView: View {
                 HStack(spacing: 3) {
                   Image(systemName: "text.magnifyingglass")
                     .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(.primary)
+                    .opacity(0.75)
                   Text("Metadata Explorer")
                     .font(.system(size: 12, weight: .regular))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(.primary)
+                    .opacity(0.75)
                 if webModel.isLoading || (!displayAddress.isEmpty && displayAddress != ogHost && URL(string: webModel.currentURL)?.host() != nil) {
                     ProgressView()
                         .controlSize(.small)
@@ -1021,28 +1032,35 @@ struct ContentView: View {
                 .opacity(min(1, max(0, sidebarScrollOffset / 20)))
 
             ScrollView(showsIndicators: false) {
-                VStack(spacing: 56) {
+                VStack(spacing: 24) {
                     ogSummary
                         .padding(.top, 12)
                         .padding(.horizontal, 14)
 
+                  let dashedDivider = Line()
+                      .stroke(style: StrokeStyle(lineWidth: 0.5, dash: [4, 3]))
+                      .foregroundStyle(Color.black.opacity(0.25))
+                      .frame(height: 0.5)
+                      .padding(.horizontal, 14)
+
                   VStack(spacing: 0) {
                       ogSection("X Preview", icon: "x-twitter") { xTwitterCard }
                           .padding(.horizontal, 14)
-                          .padding(.vertical, 16)
-                      Divider()
+                          .padding(.top, 8)
+                          .padding(.bottom, 16)
+                      dashedDivider
                       ogSection("Slack Preview", icon: "slack") { slackCard }
                           .padding(.horizontal, 14)
                           .padding(.vertical, 16)
-                      Divider()
+                      dashedDivider
                       ogSection("WhatsApp Preview", icon: "whatsapp") { whatsAppCard }
                           .padding(.horizontal, 14)
                           .padding(.vertical, 16)
-                      Divider()
+                      dashedDivider
                       ogSection("Facebook Preview", icon: "facebook") { facebookCard }
                           .padding(.horizontal, 14)
                           .padding(.vertical, 16)
-                      Divider()
+                      dashedDivider
                       ogSection("LinkedIn Preview", icon: "linkedin") { linkedInCard }
                           .padding(.horizontal, 14)
                           .padding(.top, 16)
@@ -1076,7 +1094,7 @@ struct ContentView: View {
     // MARK: - OG Summary
 
     private var ogSummary: some View {
-        VStack(alignment: .leading, spacing: 30) {
+        VStack(alignment: .leading, spacing: 24) {
             // Icons + Title + Description
             VStack(alignment: .leading, spacing: 14) {
                 Group {
@@ -1098,6 +1116,7 @@ struct ContentView: View {
                                 Text(touchIcons.count == 1 ? "APPLE TOUCH ICON" : "APPLE TOUCH ICONS")
                                     .font(.system(size: 9, weight: .medium))
                                     .foregroundStyle(.secondary)
+                                    .opacity(0.75)
                             }
                             FlowLayout(alignment: .bottomLeading, spacing: 14) {
                                 HStack(spacing: 4) {
@@ -1112,6 +1131,7 @@ struct ContentView: View {
                                         Text(favicons.count == 1 ? "FAVICON" : "FAVICONS")
                                             .font(.system(size: 9, weight: .medium))
                                             .foregroundStyle(.secondary)
+                                            .opacity(0.75)
                                         HStack(spacing: 4) {
                                             ForEach(favicons.sorted { a, b in
                                                 (a.pixelWidth ?? 0) > (b.pixelWidth ?? 0)
@@ -1167,8 +1187,17 @@ struct ContentView: View {
                     .frame(minHeight: 48)
                     gridDivider.frame(height: 0.5)
                     // Row 4: Canonical (full width)
-                    metadataCell("Canonical", value: webModel.ogData.canonical)
-                        .frame(minHeight: 48)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("CANONICAL")
+                            .font(.system(size: 9, weight: .medium))
+                            .foregroundStyle(.secondary)
+                        Text(webModel.ogData.canonical.isEmpty ? "—" : webModel.ogData.canonical)
+                            .font(.system(size: 11))
+                            .foregroundStyle(webModel.ogData.canonical.isEmpty ? .tertiary : .primary)
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 8)
+                    .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
                 }
                 .background(Color.black.opacity(0.04))
                 .cornerRadius(8)
