@@ -250,6 +250,24 @@ class WebViewModel: NSObject, ObservableObject, WKScriptMessageHandler {
                         });
                     }
                 });
+                var hasFavicon = icons.some(function(i) { return i.rel === 'icon' || i.rel === 'shortcut icon'; });
+                var hasTouch = icons.some(function(i) { return i.rel.indexOf('apple-touch-icon') !== -1; });
+                if (!hasFavicon) {
+                    icons.push({
+                        url: document.location.origin + '/favicon.ico',
+                        sizes: '',
+                        rel: 'shortcut icon',
+                        rawTag: '<link rel="shortcut icon" href="/favicon.ico">'
+                    });
+                }
+                if (!hasTouch) {
+                    icons.push({
+                        url: document.location.origin + '/apple-touch-icon.png',
+                        sizes: '180x180',
+                        rel: 'apple-touch-icon',
+                        rawTag: '<link rel="apple-touch-icon" href="/apple-touch-icon.png">'
+                    });
+                }
                 var favicon = icons.length > 0 ? icons[0].url : '';
                 var hasPWA = !!document.querySelector('link[rel="manifest"]');
                 var hasViewport = !!document.querySelector('meta[name="viewport"]');
