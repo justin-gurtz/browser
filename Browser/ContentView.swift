@@ -775,7 +775,7 @@ struct ContentView: View {
                 top: 7,
                 leading: 7,
                 bottom: 7,
-                trailing: sidebarOpen ? 334 : 7
+                trailing: sidebarOpen ? 320 : 7
             ))
 
             if sidebarOpen {
@@ -848,7 +848,7 @@ struct ContentView: View {
                     Color.clear.onChange(of: geo.size.height) { _, h in tooltipHeight = h }
                         .onAppear { tooltipHeight = geo.size.height }
                 })
-                .padding(.trailing, sidebarOpen ? 348 : 21)
+                .padding(.trailing, sidebarOpen ? 334 : 21)
                 .offset(y: tooltipOffsetFromCenter)
                 .allowsHitTesting(false)
                 .transition(.opacity)
@@ -997,26 +997,40 @@ struct ContentView: View {
                 .buttonStyle(HoverButtonStyle())
             }
             .frame(height: 40)
-            .padding(.horizontal, 7)
+            .padding(.horizontal, 14)
 
             Divider()
-                .padding(.horizontal, -7)
                 .opacity(min(1, max(0, sidebarScrollOffset / 20)))
 
             ScrollView(showsIndicators: false) {
                 VStack(spacing: 56) {
                     ogSummary
                         .padding(.top, 12)
+                        .padding(.horizontal, 14)
 
-                  VStack(spacing: 24) {
-                      ogSection("Link Preview", icon: "x-twitter") { xTwitterCard }
-                      ogSection("Slack", icon: "slack") { slackCard }
-                    ogSection("WhatsApp", icon: "whatsapp") { whatsAppCard }
-                    ogSection("Facebook", icon: "facebook") { facebookCard }
-                    ogSection("LinkedIn", icon: "linkedin") { linkedInCard }
+                  VStack(spacing: 0) {
+                      ogSection("X Preview", icon: "x-twitter") { xTwitterCard }
+                          .padding(.horizontal, 14)
+                          .padding(.vertical, 16)
+                      Divider()
+                      ogSection("Slack Preview", icon: "slack") { slackCard }
+                          .padding(.horizontal, 14)
+                          .padding(.vertical, 16)
+                      Divider()
+                      ogSection("WhatsApp Preview", icon: "whatsapp") { whatsAppCard }
+                          .padding(.horizontal, 14)
+                          .padding(.vertical, 16)
+                      Divider()
+                      ogSection("Facebook Preview", icon: "facebook") { facebookCard }
+                          .padding(.horizontal, 14)
+                          .padding(.vertical, 16)
+                      Divider()
+                      ogSection("LinkedIn Preview", icon: "linkedin") { linkedInCard }
+                          .padding(.horizontal, 14)
+                          .padding(.top, 16)
                   }
                 }
-                .padding(EdgeInsets(top: 7, leading: 7, bottom: 14, trailing: 7))
+                .padding(EdgeInsets(top: 7, leading: 0, bottom: 14, trailing: 0))
                 .background(
                     GeometryReader { geo in
                         Color.clear
@@ -1038,7 +1052,7 @@ struct ContentView: View {
             .coordinateSpace(name: "sidebarScroll")
         }
         .frame(width: 320)
-        .padding(EdgeInsets(top: 7, leading: 0, bottom: 0, trailing: 7))
+        .padding(EdgeInsets(top: 7, leading: 0, bottom: 0, trailing: 0))
     }
 
     // MARK: - OG Summary
@@ -1092,7 +1106,7 @@ struct ContentView: View {
                         gridDivider.frame(width: 0.5)
                         metadataCell("Generator", value: webModel.ogData.generator)
                     }
-                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(minHeight: 48)
                     gridDivider.frame(height: 0.5)
                     // Row 2: Mobile / Language
                     HStack(spacing: 0) {
@@ -1100,7 +1114,7 @@ struct ContentView: View {
                         gridDivider.frame(width: 0.5)
                         metadataCell("Language", value: humanizedLang(webModel.ogData.lang))
                     }
-                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(minHeight: 48)
                     gridDivider.frame(height: 0.5)
                     // Row 3: Robots / PWA
                     HStack(spacing: 0) {
@@ -1108,10 +1122,11 @@ struct ContentView: View {
                         gridDivider.frame(width: 0.5)
                         metadataCell("PWA", enabled: webModel.ogData.hasPWA)
                     }
-                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(minHeight: 48)
                     gridDivider.frame(height: 0.5)
                     // Row 4: Canonical (full width)
                     metadataCell("Canonical", value: webModel.ogData.canonical)
+                        .frame(minHeight: 48)
                 }
                 .background(Color.black.opacity(0.04))
                 .cornerRadius(8)
@@ -1129,7 +1144,7 @@ struct ContentView: View {
                     }
                     .padding(.horizontal, 10)
                     .padding(.vertical, 8)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
                     .background(Color.black.opacity(0.04))
                     .cornerRadius(8)
                     .overlay(RoundedRectangle(cornerRadius: 8).stroke(gridDivider, lineWidth: 0.5))
@@ -1330,15 +1345,18 @@ struct ContentView: View {
 
     private func ogSection<Content: View>(_ title: String, icon: String, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 5) {
+            HStack(spacing: 0) {
+                Text(title)
+                    .font(.system(size: 11, weight: .medium))
+                    .opacity(0.8)
+                Spacer()
                 Image(icon)
                     .resizable()
                     .aspectRatio(contentMode: .fit)
-                    .frame(width: 14, height: 14)
-                Text(title)
-                    .font(.system(size: 11, weight: .medium))
+                    .frame(width: 16, height: 16)
+                    .opacity(0.25)
             }
-            .opacity(0.8)
+            .padding(.top, -5)
             content()
         }
     }
