@@ -120,6 +120,8 @@ class WebViewModel: NSObject, ObservableObject, WKScriptMessageHandler {
     @Published var isLoading = false
     @Published var currentURL = ""
     @Published var ogData = OGMetadata()
+    @Published var ogImage: NSImage?
+    @Published var twitterOgImage: NSImage?
     @Published var pageBackgroundColor: Color = .white
 
     private var observers: [NSKeyValueObservation] = []
@@ -376,6 +378,8 @@ class WebViewModel: NSObject, ObservableObject, WKScriptMessageHandler {
 
             var ogImageSize: (Int, Int)? = nil
             var twitterImageSize: (Int, Int)? = nil
+            var prefetchedOgImage: NSImage? = nil
+            var prefetchedTwitterImage: NSImage? = nil
 
             let group = DispatchGroup()
             for url in ogImageURLs {
@@ -390,9 +394,11 @@ class WebViewModel: NSObject, ObservableObject, WKScriptMessageHandler {
                         if w > 0 && h > 0 {
                             if url.absoluteString == metadata.imageURL && ogImageSize == nil {
                                 ogImageSize = (w, h)
+                                prefetchedOgImage = nsImage
                             }
                             if url.absoluteString == metadata.twitterImage && twitterImageSize == nil {
                                 twitterImageSize = (w, h)
+                                prefetchedTwitterImage = nsImage
                             }
                         }
                     }
@@ -429,6 +435,8 @@ class WebViewModel: NSObject, ObservableObject, WKScriptMessageHandler {
                     metadata.twitterImageWidth = w
                     metadata.twitterImageHeight = h
                 }
+                self?.ogImage = prefetchedOgImage
+                self?.twitterOgImage = prefetchedTwitterImage
                 self?.ogData = metadata
 
                 // Parse page background color from CSS rgb() string
@@ -1086,6 +1094,7 @@ struct ContentView: View {
                 )
             }
             .coordinateSpace(name: "sidebarScroll")
+            .opacity((webModel.isLoading || (!displayAddress.isEmpty && displayAddress != ogHost && URL(string: webModel.currentURL)?.host() != nil)) ? 0.4 : 1)
         }
         .frame(width: 320)
         .padding(EdgeInsets(top: 7, leading: 0, bottom: 0, trailing: 0))
@@ -1698,8 +1707,34 @@ struct ContentView: View {
             return HoverInfo(type: hoverType, size: "", rawTag: rawTagDisplay, warning: "Malformed URL")
         }()
 
+        // Use prefetched NSImage if available, otherwise fall back to AsyncImage
+        let prefetched: NSImage? = {
+            if src == webModel.ogData.twitterImage, let img = webModel.twitterOgImage { return img }
+            if src == webModel.ogData.imageURL, let img = webModel.ogImage { return img }
+            return nil
+        }()
+
         return Group {
-            if let url = URL(string: src), !src.isEmpty {
+            if let nsImage = prefetched {
+                let image = Image(nsImage: nsImage)
+                if let aspectRatio = aspectRatio {
+                    Color.clear
+                        .aspectRatio(aspectRatio, contentMode: .fit)
+                        .overlay(
+                            image
+                                .resizable()
+                                .aspectRatio(contentMode: .fill)
+                        )
+                        .clipped()
+                } else {
+                    image
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                        .frame(height: height ?? 120)
+                        .frame(maxWidth: .infinity)
+                        .clipped()
+                }
+            } else if let url = URL(string: src), !src.isEmpty {
                 AsyncImage(url: url) { phase in
                     switch phase {
                     case .success(let image):
