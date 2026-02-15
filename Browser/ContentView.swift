@@ -800,8 +800,8 @@ struct ContentView: View {
         let edgeInset: CGFloat = 14
         let halfContainer = containerHeight / 2
         let halfTooltip = tooltipHeight / 2
-        // Top: 7px chrome + 39px toolbar + 14px inset
-        let minY: CGFloat = 7 + 39 + edgeInset + halfTooltip
+        // Top: 7px chrome + 41px toolbar + 14px inset
+        let minY: CGFloat = 7 + 41 + edgeInset + halfTooltip
         // Bottom: 7px chrome + 14px inset
         let maxY = containerHeight - 7 - edgeInset - halfTooltip
         let clampedY = min(max(hoveredY, minY), max(minY, maxY))
@@ -1249,9 +1249,10 @@ struct ContentView: View {
                         Image(systemName: "exclamationmark.circle")
                             .font(.system(size: 11))
                             .foregroundStyle(.secondary)
-                        (Text("Note: ").font(.system(size: 10, weight: .semibold)) + Text("This page defines meta keywords. Not harmful, but most search engines ignore it.").font(.system(size: 10)))
+                        Text("This page defines meta keywords. Not harmful, but most search engines ignore it.")
+                            .frame(maxWidth: 230, alignment: .leading)
+                            .font(.system(size: 10))
                             .foregroundStyle(.secondary)
-                            .frame(maxWidth: 260, alignment: .leading)
                             .lineLimit(2)
                     }
                     .padding(.horizontal, 10)
