@@ -832,7 +832,7 @@ struct ContentView: View {
                         Image(nsImage: nsImage)
                             .interpolation(.high)
                             .cornerRadius(4)
-                            .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.black.opacity(0.25), lineWidth: 0.5))
+                            .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.black.opacity(0.5), lineWidth: 0.5))
                             .padding(.bottom, 8)
                     } else if let urlStr = info.imageURL, let url = URL(string: urlStr) {
                         AsyncImage(url: url) { phase in
@@ -1045,30 +1045,20 @@ struct ContentView: View {
                         .padding(.top, 12)
                         .padding(.horizontal, 14)
 
-                  let dashedDivider = Line()
-                      .stroke(style: StrokeStyle(lineWidth: 0.5, dash: [4, 3]))
-                      .foregroundStyle(Color.black.opacity(0.25))
-                      .frame(height: 0.5)
-                      .padding(.horizontal, 14)
-
                   VStack(spacing: 0) {
                       ogSection("X Preview", icon: "x-twitter") { xTwitterCard }
                           .padding(.horizontal, 14)
                           .padding(.top, 8)
                           .padding(.bottom, 16)
-                      dashedDivider
                       ogSection("Slack Preview", icon: "slack") { slackCard }
                           .padding(.horizontal, 14)
                           .padding(.vertical, 16)
-                      dashedDivider
                       ogSection("WhatsApp Preview", icon: "whatsapp") { whatsAppCard }
                           .padding(.horizontal, 14)
                           .padding(.vertical, 16)
-                      dashedDivider
                       ogSection("Facebook Preview", icon: "facebook") { facebookCard }
                           .padding(.horizontal, 14)
                           .padding(.vertical, 16)
-                      dashedDivider
                       ogSection("LinkedIn Preview", icon: "linkedin") { linkedInCard }
                           .padding(.horizontal, 14)
                           .padding(.top, 16)
@@ -1181,7 +1171,7 @@ struct ContentView: View {
                     gridDivider.frame(height: 0.5)
                     // Row 2: Mobile / Language
                     HStack(spacing: 0) {
-                        metadataCell("Mobile", enabled: webModel.ogData.hasViewport)
+                        metadataCell("Responsive Viewport", enabled: webModel.ogData.hasViewport)
                         gridDivider.frame(width: 0.5)
                         metadataCell("Language", value: humanizedLang(webModel.ogData.lang))
                     }
@@ -1261,7 +1251,7 @@ struct ContentView: View {
                 HStack(spacing: 3) {
                     Image(systemName: "checkmark")
                         .font(.system(size: 8, weight: .bold))
-                    Text("Enabled")
+                    Text("Configured")
                         .font(.system(size: 10, weight: .medium))
                 }
                 .foregroundStyle(Color(red: 0.75, green: 1.0, blue: 0.78))
