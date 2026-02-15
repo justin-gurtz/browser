@@ -21,12 +21,14 @@ class WebViewModel: NSObject, ObservableObject, WKScriptMessageHandler {
     @Published var ogData = OGMetadata()
     @Published var ogImage: NSImage?
     @Published var twitterOgImage: NSImage?
+    @Published var faviconImage: NSImage?
     @Published var pageBackgroundColor: Color = .white
 
     // Buffer pending metadata so we only apply it once isLoading is false
     private var pendingOgData: OGMetadata?
     private var pendingOgImage: NSImage?
     private var pendingTwitterOgImage: NSImage?
+    private var pendingFaviconImage: NSImage?
     private var pendingBgColor: Color?
 
     private var observers: [NSKeyValueObservation] = []
@@ -132,19 +134,21 @@ class WebViewModel: NSObject, ObservableObject, WKScriptMessageHandler {
         }
     }
 
-    private func applyMetadata(_ metadata: OGMetadata, ogImage: NSImage?, twitterOgImage: NSImage?, bgColor: Color?) {
+    private func applyMetadata(_ metadata: OGMetadata, ogImage: NSImage?, twitterOgImage: NSImage?, faviconImage: NSImage?, bgColor: Color?) {
         self.ogImage = ogImage
         self.twitterOgImage = twitterOgImage
+        self.faviconImage = faviconImage
         self.ogData = metadata
         if let bgColor { self.pageBackgroundColor = bgColor }
     }
 
     private func flushPendingMetadata() {
         guard let pending = pendingOgData else { return }
-        applyMetadata(pending, ogImage: pendingOgImage, twitterOgImage: pendingTwitterOgImage, bgColor: pendingBgColor)
+        applyMetadata(pending, ogImage: pendingOgImage, twitterOgImage: pendingTwitterOgImage, faviconImage: pendingFaviconImage, bgColor: pendingBgColor)
         pendingOgData = nil
         pendingOgImage = nil
         pendingTwitterOgImage = nil
+        pendingFaviconImage = nil
         pendingBgColor = nil
     }
 
@@ -310,6 +314,7 @@ class WebViewModel: NSObject, ObservableObject, WKScriptMessageHandler {
             var twitterImageSize: (Int, Int)? = nil
             var prefetchedOgImage: NSImage? = nil
             var prefetchedTwitterImage: NSImage? = nil
+            var prefetchedFavicon: NSImage? = nil
 
             let group = DispatchGroup()
             for url in ogImageURLs {
@@ -330,6 +335,9 @@ class WebViewModel: NSObject, ObservableObject, WKScriptMessageHandler {
                                 twitterImageSize = (w, h)
                                 prefetchedTwitterImage = nsImage
                             }
+                        }
+                        if url.absoluteString == metadata.faviconURL {
+                            prefetchedFavicon = nsImage
                         }
                     }
                     group.leave()
@@ -373,10 +381,11 @@ class WebViewModel: NSObject, ObservableObject, WKScriptMessageHandler {
                     self.pendingOgData = metadata
                     self.pendingOgImage = prefetchedOgImage
                     self.pendingTwitterOgImage = prefetchedTwitterImage
+                    self.pendingFaviconImage = prefetchedFavicon
                     self.pendingBgColor = bgColor
                 } else {
                     // Already done loading, apply immediately
-                    self.applyMetadata(metadata, ogImage: prefetchedOgImage, twitterOgImage: prefetchedTwitterImage, bgColor: bgColor)
+                    self.applyMetadata(metadata, ogImage: prefetchedOgImage, twitterOgImage: prefetchedTwitterImage, faviconImage: prefetchedFavicon, bgColor: bgColor)
                 }
             }
         }

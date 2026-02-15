@@ -74,6 +74,7 @@ extension ContentView {
                             .padding(.horizontal, 14)
                             .padding(.top, 16)
                     }
+                    .geometryGroup()
                 }
                 .padding(EdgeInsets(top: 7, leading: 0, bottom: 14, trailing: 0))
                 .background(
@@ -160,6 +161,7 @@ extension ContentView {
                     }
                 }
                 .padding(.bottom, 18)
+                .geometryGroup()
                 .modifier(AnimatedHeight(height: $iconsHeight))
                 .onChange(of: webModel.ogData.icons) { oldIcons, newIcons in
                     let count = newIcons.count

@@ -68,20 +68,12 @@ extension ContentView {
 
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 5) {
-                    if let url = URL(string: webModel.ogData.faviconURL), !webModel.ogData.faviconURL.isEmpty {
-                        AsyncImage(url: url) { phase in
-                            switch phase {
-                            case .success(let image):
-                                image
-                                    .resizable()
-                                    .aspectRatio(contentMode: .fit)
-                                    .frame(width: 14, height: 14)
-                            default:
-                                Image(systemName: "globe")
-                                    .font(.system(size: 11))
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
+                    if let nsImage = webModel.faviconImage {
+                        Image(nsImage: nsImage)
+                            .resizable()
+                            .interpolation(.high)
+                            .aspectRatio(contentMode: .fit)
+                            .frame(width: 14, height: 14)
                     } else {
                         Image(systemName: "globe")
                             .font(.system(size: 11))
@@ -209,25 +201,17 @@ extension ContentView {
 
                     Spacer()
 
-                    if let url = URL(string: webModel.ogData.faviconURL), !webModel.ogData.faviconURL.isEmpty {
-                        AsyncImage(url: url) { phase in
-                            switch phase {
-                            case .success(let image):
-                                image
-                                    .resizable()
-                                    .aspectRatio(contentMode: .fit)
-                                    .frame(width: 16, height: 16)
-                                    .clipShape(Circle())
-                                    .overlay(
-                                        Circle()
-                                            .stroke(Color.black.opacity(0.25), lineWidth: 0.5)
-                                    )
-                            default:
-                                Image(systemName: "globe")
-                                    .font(.system(size: 11))
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
+                    if let nsImage = webModel.faviconImage {
+                        Image(nsImage: nsImage)
+                            .resizable()
+                            .interpolation(.high)
+                            .aspectRatio(contentMode: .fit)
+                            .frame(width: 16, height: 16)
+                            .clipShape(Circle())
+                            .overlay(
+                                Circle()
+                                    .stroke(Color.black.opacity(0.25), lineWidth: 0.5)
+                            )
                     }
                 }
             }
