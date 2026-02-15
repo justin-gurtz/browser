@@ -111,6 +111,43 @@ struct OGMetadata: Equatable {
     var sourceURL: String = ""
 }
 
+// MARK: - Animated Height Modifier
+
+/// Measures the content's natural height and exposes it via a binding.
+/// The parent animates the binding; this modifier applies it as a frame + clip.
+struct AnimatedHeight: ViewModifier {
+    @Binding var height: CGFloat
+
+    func body(content: Content) -> some View {
+        content
+            .background(
+                GeometryReader { geo in
+                    Color.clear
+                        .preference(key: HeightPrefKey.self, value: geo.size.height)
+                }
+            )
+            .onPreferenceChange(HeightPrefKey.self) { newH in
+                if height == 0 {
+                    // First measurement — set immediately, no animation
+                    height = newH
+                } else if newH != height {
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        height = newH
+                    }
+                }
+            }
+            .frame(height: height, alignment: .topLeading)
+            .clipped()
+    }
+
+    private struct HeightPrefKey: PreferenceKey {
+        static var defaultValue: CGFloat = 0
+        static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+            value = max(value, nextValue())
+        }
+    }
+}
+
 // MARK: - WebView Model
 
 class WebViewModel: NSObject, ObservableObject, WKScriptMessageHandler {
@@ -772,6 +809,10 @@ struct ContentView: View {
     @State private var tooltipHeight: CGFloat = 0
     @State private var hoverDismissWork: DispatchWorkItem?
     @State private var hoverAppearWork: DispatchWorkItem?
+    @State private var titleDescHeight: CGFloat = 0
+    @State private var iconsHeight: CGFloat = 0
+    @State private var iconOpacities: [Double] = []
+    @State private var iconOffsets: [CGFloat] = []
     @FocusState private var isAddressFocused: Bool
 
     private var isPreview: Bool {
@@ -1135,9 +1176,10 @@ struct ContentView: View {
     // MARK: - OG Summary
 
     private var ogSummary: some View {
-        VStack(alignment: .leading, spacing: 24) {
+        VStack(alignment: .leading, spacing: 0) {
             // Icons + Title + Description
-            VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 0) {
+                // Animated-height container for icons
                 Group {
                     if webModel.ogData.icons.isEmpty {
                         RoundedRectangle(cornerRadius: 12)
@@ -1159,25 +1201,28 @@ struct ContentView: View {
                                     .foregroundStyle(.secondary)
                                     .opacity(0.75)
                             }
+                            let sortedTouch = touchIcons.sorted { ($0.pixelWidth ?? 0) > ($1.pixelWidth ?? 0) }
+                            let sortedFav = favicons.sorted { ($0.pixelWidth ?? 0) > ($1.pixelWidth ?? 0) }
                             FlowLayout(alignment: .bottomLeading, spacing: 14) {
                                 HStack(spacing: 4) {
-                                    ForEach(touchIcons.sorted { a, b in
-                                        (a.pixelWidth ?? 0) > (b.pixelWidth ?? 0)
-                                    }) { icon in
+                                    ForEach(Array(sortedTouch.enumerated()), id: \.element.id) { idx, icon in
                                         iconTile(icon, displayAt: iconDisplaySize(icon))
+                                            .opacity(idx < iconOpacities.count ? iconOpacities[idx] : 1)
+                                            .offset(x: idx < iconOffsets.count ? iconOffsets[idx] : 0)
                                     }
                                 }
                                 if !favicons.isEmpty {
                                     VStack(alignment: .leading, spacing: 6) {
-                                        Text(favicons.count == 1 ? "FAVICON" : "FAVICONS")
+                                        Text(sortedFav.count == 1 ? "FAVICON" : "FAVICONS")
                                             .font(.system(size: 9, weight: .medium))
                                             .foregroundStyle(.secondary)
                                             .opacity(0.75)
                                         HStack(spacing: 4) {
-                                            ForEach(favicons.sorted { a, b in
-                                                (a.pixelWidth ?? 0) > (b.pixelWidth ?? 0)
-                                            }) { icon in
+                                            ForEach(Array(sortedFav.enumerated()), id: \.element.id) { idx, icon in
+                                                let globalIdx = sortedTouch.count + idx
                                                 iconTile(icon, displayAt: iconDisplaySize(icon))
+                                                    .opacity(globalIdx < iconOpacities.count ? iconOpacities[globalIdx] : 1)
+                                                    .offset(x: globalIdx < iconOffsets.count ? iconOffsets[globalIdx] : 0)
                                             }
                                         }
                                     }
@@ -1186,8 +1231,51 @@ struct ContentView: View {
                         }
                     }
                 }
-                .padding(.bottom, 4)
+                .padding(.bottom, 18)
+                .modifier(AnimatedHeight(height: $iconsHeight))
+                .onChange(of: webModel.ogData.icons) { oldIcons, newIcons in
+                    let count = newIcons.count
+                    let oldCount = oldIcons.count
+                    let oldTouchCount = oldIcons.filter { $0.rel.lowercased().contains("apple-touch-icon") }.count
+                    let oldFavCount = oldCount - oldTouchCount
+                    let newTouchCount = newIcons.filter { $0.rel.lowercased().contains("apple-touch-icon") }.count
+                    let newFavCount = count - newTouchCount
 
+                    // Icons that existed before stay visible; new ones start hidden + nudged
+                    iconOpacities = (0..<count).map { i in
+                        if i < newTouchCount {
+                            return i < oldTouchCount ? 1.0 : 0.0
+                        } else {
+                            let favIdx = i - newTouchCount
+                            return favIdx < oldFavCount ? 1.0 : 0.0
+                        }
+                    }
+                    iconOffsets = (0..<count).map { i in
+                        if i < newTouchCount {
+                            return i < oldTouchCount ? 0 : CGFloat(-3)
+                        } else {
+                            let favIdx = i - newTouchCount
+                            return favIdx < oldFavCount ? 0 : CGFloat(-3)
+                        }
+                    }
+                    // Stagger animate new icons in
+                    for i in 0..<count {
+                        let isNewTouch = i < newTouchCount && i >= oldTouchCount
+                        let isNewFav = i >= newTouchCount && (i - newTouchCount) >= oldFavCount
+                        guard isNewTouch || isNewFav else { continue }
+                        let staggerIdx = isNewTouch ? (i - oldTouchCount) : (i - newTouchCount - oldFavCount)
+                        DispatchQueue.main.asyncAfter(deadline: .now() + Double(staggerIdx) * 0.005) {
+                            withAnimation(.easeOut(duration: 0.2)) {
+                                if i < iconOpacities.count { iconOpacities[i] = 1.0 }
+                                if i < iconOffsets.count { iconOffsets[i] = 0 }
+                            }
+                        }
+                    }
+                }
+
+                // Animated-height container: text swaps instantly,
+                // but the height animates so content below slides.
+                // Bottom padding absorbs the gap so clipping happens in empty space.
                 VStack(alignment: .leading, spacing: 4) {
                     Text(webModel.ogData.title.isEmpty ? "(No title)" : webModel.ogData.title)
                         .font(.system(size: 16, weight: .medium))
@@ -1197,6 +1285,9 @@ struct ContentView: View {
                         .font(.system(size: 12))
                         .foregroundStyle(.primary)
                 }
+                .padding(.bottom, 24)
+                .fixedSize(horizontal: false, vertical: true)
+                .modifier(AnimatedHeight(height: $titleDescHeight))
             }
 
             // Metadata table
