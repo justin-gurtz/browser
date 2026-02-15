@@ -108,6 +108,7 @@ struct OGMetadata: Equatable {
     var imageHeight: Int?
     var twitterImageWidth: Int?
     var twitterImageHeight: Int?
+    var sourceURL: String = ""
 }
 
 // MARK: - WebView Model
@@ -123,6 +124,12 @@ class WebViewModel: NSObject, ObservableObject, WKScriptMessageHandler {
     @Published var ogImage: NSImage?
     @Published var twitterOgImage: NSImage?
     @Published var pageBackgroundColor: Color = .white
+
+    // Buffer pending metadata so we only apply it once isLoading is false
+    private var pendingOgData: OGMetadata?
+    private var pendingOgImage: NSImage?
+    private var pendingTwitterOgImage: NSImage?
+    private var pendingBgColor: Color?
 
     private var observers: [NSKeyValueObservation] = []
     private var navigationDelegate: WebNavigationDelegate?
@@ -186,7 +193,10 @@ class WebViewModel: NSObject, ObservableObject, WKScriptMessageHandler {
                 DispatchQueue.main.async { self?.canGoForward = change.newValue ?? false }
             },
             webView.observe(\.isLoading, options: .new) { [weak self] _, change in
-                DispatchQueue.main.async { self?.isLoading = change.newValue ?? false }
+                DispatchQueue.main.async {
+                    self?.isLoading = change.newValue ?? false
+                    if !(change.newValue ?? false) { self?.flushPendingMetadata() }
+                }
             },
             webView.observe(\.url, options: .new) { [weak self] _, change in
                 DispatchQueue.main.async {
@@ -222,6 +232,22 @@ class WebViewModel: NSObject, ObservableObject, WKScriptMessageHandler {
         webView.takeSnapshot(with: config) { image, _ in
             completion(image)
         }
+    }
+
+    private func applyMetadata(_ metadata: OGMetadata, ogImage: NSImage?, twitterOgImage: NSImage?, bgColor: Color?) {
+        self.ogImage = ogImage
+        self.twitterOgImage = twitterOgImage
+        self.ogData = metadata
+        if let bgColor { self.pageBackgroundColor = bgColor }
+    }
+
+    private func flushPendingMetadata() {
+        guard let pending = pendingOgData else { return }
+        applyMetadata(pending, ogImage: pendingOgImage, twitterOgImage: pendingTwitterOgImage, bgColor: pendingBgColor)
+        pendingOgData = nil
+        pendingOgImage = nil
+        pendingTwitterOgImage = nil
+        pendingBgColor = nil
     }
 
     func fetchOGMetadata() {
@@ -319,7 +345,8 @@ class WebViewModel: NSObject, ObservableObject, WKScriptMessageHandler {
                     lang: lang,
                     hasPWA: hasPWA,
                     hasViewport: hasViewport,
-                    bgColor: bgColor
+                    bgColor: bgColor,
+                    pageURL: document.location.href
                 });
             })()
         """
@@ -328,6 +355,10 @@ class WebViewModel: NSObject, ObservableObject, WKScriptMessageHandler {
                   let data = jsonString.data(using: .utf8),
                   let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
             else { return }
+
+            // Discard stale results from a page that's no longer current
+            let pageURL = dict["pageURL"] as? String ?? ""
+            guard pageURL == self?.currentURL else { return }
 
             var host = ""
             if let urlStr = self?.webView.url?.absoluteString,
@@ -368,7 +399,8 @@ class WebViewModel: NSObject, ObservableObject, WKScriptMessageHandler {
                 lang: dict["lang"] as? String ?? "",
                 hasPWA: dict["hasPWA"] as? Bool ?? false,
                 hasViewport: dict["hasViewport"] as? Bool ?? false,
-                host: host
+                host: host,
+                sourceURL: self?.webView.url?.absoluteString ?? ""
             )
 
             // Prefetch OG images into URL cache and read dimensions
@@ -426,6 +458,7 @@ class WebViewModel: NSObject, ObservableObject, WKScriptMessageHandler {
             }
 
             group.notify(queue: .main) {
+                guard let self else { return }
                 metadata.icons = resolvedIcons
                 if let (w, h) = ogImageSize {
                     metadata.imageWidth = w
@@ -435,13 +468,17 @@ class WebViewModel: NSObject, ObservableObject, WKScriptMessageHandler {
                     metadata.twitterImageWidth = w
                     metadata.twitterImageHeight = h
                 }
-                self?.ogImage = prefetchedOgImage
-                self?.twitterOgImage = prefetchedTwitterImage
-                self?.ogData = metadata
+                let bgColor = (dict["bgColor"] as? String).flatMap { Self.parseCSS(rgb: $0) }
 
-                // Parse page background color from CSS rgb() string
-                if let bgStr = dict["bgColor"] as? String {
-                    self?.pageBackgroundColor = Self.parseCSS(rgb: bgStr) ?? .white
+                if self.isLoading {
+                    // Buffer until isLoading becomes false so content + opacity change together
+                    self.pendingOgData = metadata
+                    self.pendingOgImage = prefetchedOgImage
+                    self.pendingTwitterOgImage = prefetchedTwitterImage
+                    self.pendingBgColor = bgColor
+                } else {
+                    // Already done loading, apply immediately
+                    self.applyMetadata(metadata, ogImage: prefetchedOgImage, twitterOgImage: prefetchedTwitterImage, bgColor: bgColor)
                 }
             }
         }
@@ -745,6 +782,10 @@ struct ContentView: View {
         webModel.ogData.host
     }
 
+    private var sidebarLoading: Bool {
+        webModel.isLoading || webModel.ogData.sourceURL != webModel.currentURL
+    }
+
     private var displayAddress: String {
         guard let url = URL(string: webModel.currentURL),
               let host = url.host() else { return webModel.currentURL }
@@ -1017,7 +1058,7 @@ struct ContentView: View {
                     .font(.system(size: 12, weight: .regular))
                     .foregroundStyle(.primary)
                     .opacity(0.75)
-                if webModel.isLoading || (!displayAddress.isEmpty && displayAddress != ogHost && URL(string: webModel.currentURL)?.host() != nil) {
+                if sidebarLoading {
                     ProgressView()
                         .controlSize(.small)
                         .scaleEffect(0.7)
@@ -1085,7 +1126,7 @@ struct ContentView: View {
                 )
             }
             .coordinateSpace(name: "sidebarScroll")
-            .opacity((webModel.isLoading || (!displayAddress.isEmpty && displayAddress != ogHost && URL(string: webModel.currentURL)?.host() != nil)) ? 0.4 : 1)
+            .opacity(sidebarLoading ? 0.4 : 1)
         }
         .frame(width: 320)
         .padding(EdgeInsets(top: 7, leading: 0, bottom: 0, trailing: 0))
