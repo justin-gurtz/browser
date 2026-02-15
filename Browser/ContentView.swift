@@ -801,6 +801,7 @@ struct ContentView: View {
                         .clipped()
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(webModel.pageBackgroundColor)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color.white)
@@ -928,7 +929,7 @@ struct ContentView: View {
         let opening = !sidebarOpen
         if opening { isAddressFocused = false }
         let startWidth = webModel.webView.bounds.width
-        let endWidth = max(1, startWidth + (opening ? -327 : 327))
+        let endWidth = max(1, startWidth + (opening ? -313 : 313))
         let coverWidth = max(startWidth, endWidth)
 
         webModel.takeSnapshot { [self] snapshot in
