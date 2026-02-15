@@ -23,6 +23,10 @@ struct ContentView: View {
     @State var sidebarOpen = true
     @State var sidebarScrollOffset: CGFloat = 0
 
+    // MARK: Window State
+
+    @State var isFullscreen = false
+
     // MARK: Sidebar Toggle Animation
 
     @State var webSnapshot: NSImage?
@@ -220,7 +224,7 @@ struct ContentView: View {
                 endPoint: .bottomTrailing
             )
         )
-        .background(isPreview ? nil : WindowConfiguratorView())
+        .background(isPreview ? nil : WindowConfiguratorView(isFullscreen: $isFullscreen))
         .onAppear {
             address = "https://www.thebrowser.company/"
             webModel.load("https://www.thebrowser.company/")
@@ -315,7 +319,7 @@ struct ContentView: View {
         .foregroundStyle(.black)
         .frame(maxWidth: .infinity)
         .frame(height: 40)
-        .padding(.leading, 85)
+        .padding(.leading, isFullscreen ? 10 : 85)
         .padding(.trailing, sidebarOpen ? 6 : 10)
         .contentShape(Rectangle())
         .onTapGesture { isAddressFocused = false }
