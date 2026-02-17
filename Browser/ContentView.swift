@@ -152,8 +152,13 @@ struct ContentView: View {
             if let info = hoveredInfo {
                 VStack(alignment: .leading, spacing: 0) {
                     if let nsImage = info.image {
+                        let w = min(nsImage.size.width, 296)
+                        let h = min(nsImage.size.height, 296)
                         Image(nsImage: nsImage)
+                            .resizable()
                             .interpolation(.high)
+                            .aspectRatio(contentMode: .fit)
+                            .frame(maxWidth: w, maxHeight: h)
                             .cornerRadius(4)
                             .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.black.opacity(0.5), lineWidth: 0.5))
                             .padding(.bottom, 8)
